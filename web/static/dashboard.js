@@ -10,6 +10,8 @@ const SEEDS=[42,47,53], BUDGETS=[0,10,20,40,80];
 const MODEL_NAMES = Object.fromEntries(Object.entries(JSON.parse(document.getElementById("dashboard-models").textContent))
   .map(([version, name]) => [name.toLowerCase(), "v" + version + " · " + name]));
 const CV = JSON.parse(document.getElementById("dashboard-cv").textContent);
+const oofKeys = new Set(Object.keys(CV).map(name => name.toLowerCase()));
+const methodLabel = key => oofKeys.has(key) ? "OOF" : "прямой прогноз";
 const STATUS={shift:"Есть сдвиг",stable:"Без сдвига",insufficient_data:"Малая партия"};
 
 /* ================= УТИЛИТЫ ================= */
@@ -38,7 +40,7 @@ const S={
   split:null,baseline:null,oof:[],
   batches:[],batchId:null,drift:null,qModel:document.getElementById("dashboard-version").dataset.model,queue:[],entry:null,
   labelsStore:{},demo:null,
-  sources:{nna:"idle",var:"idle",hold:"idle"},calibrated:false
+  sources:{nna:"idle",var:"idle"},calibrated:false
 };
 const comparisonInputs = $$('input[name="compare-model"]');
 const qualityModel = $("#quality-model");
@@ -50,7 +52,7 @@ function updateComparison() {
   for (const item of $$("[data-compare]")) {
     item.hidden = !item.dataset.compare.split(" ").every(name => selected.includes(name));
   }
-  $("[data-pairwise]").hidden = selected.length < 2;
+  $("[data-pairwise]").hidden = selected.filter(name => name in CV).length < 2;
   for (const input of comparisonInputs) input.disabled = input.checked && selected.length === 1;
   const keys = selected.map(name => name.toLowerCase());
   for (const option of qualityModel.options) option.hidden = option.disabled = !keys.includes(option.value);
@@ -71,8 +73,7 @@ async function fetchText(path){const r=await fetch(RAW+path,{cache:"no-store"});
 function setSrc(key,state,note){S.sources[key]=state;renderSources(note)}
 function renderSources(){
   const defs=[["var","Faults27x7_var","имена 27 признаков и 7 категорий"],
-    ["nna","Faults.NNA","1941 запись · 34 столбца"],
-    ["hold","Прогнозы моделей","вневыборочные прогнозы трёх моделей на всём UCI"]];
+    ["nna","Faults.NNA","1941 запись · 34 столбца"]];
   $("#srcList").innerHTML=defs.map(([k,name,desc])=>{
     const st=S.sources[k];const cls=st==="ok"?"ok":st==="bad"?"bad":st==="load"?"load":"";
     const label=st==="ok"?"загружен":st==="bad"?"недоступен":st==="load"?"загрузка…":"ожидание";
@@ -273,16 +274,16 @@ function bars(el,items,colorFn){
 
 function renderKpis(){
   const b=currentBatch(),d=S.drift;
-  const [winner, best] = Object.entries(CV).filter(([name]) => selectedModels().includes(name)).sort((a, b) => b[1].macro_f1 - a[1].macro_f1)[0];
+  const [winner, best] = Object.entries(CV).filter(([name]) => selectedModels().includes(name)).sort((a, b) => b[1].macro_f1 - a[1].macro_f1)[0] || [];
   const q=qualityData();
   const items=[
     ["Записей в датасете",S.rows.length||"—","UCI Steel Plates Faults"],
     ["Записей с OOF-прогнозом",S.oof.length||"—","пять разбиений UCI"],
-    ["Лучшая модель по 5×2 CV",MODEL_NAMES[winner.toLowerCase()],"macro-F1 "+f3(best.macro_f1)],
+    ["Лучшая модель по 5×2 CV",winner ? MODEL_NAMES[winner.toLowerCase()] : "—",best ? "macro-F1 "+f3(best.macro_f1) : "Нет результатов для выбранных версий"],
     ["Партия",b?b.rows.length:"—",b?b.label:"не выбрана"],
     ["Мониторинг",d?STATUS[d.status]:"—",d&&d.score!=null?"KS "+f3(d.score)+" / порог "+f3(d.threshold):"нужно ≥ 30 записей"],
-    ["Accuracy OOF",q?pc(q.accuracy):"—",q?MODEL_NAMES[qualityModel.value]:""],
-    ["Macro-F1 OOF",q?f3(q.macro_f1):"—",q?q.size+" записей":""],
+    ["Accuracy · "+methodLabel(qualityModel.value),q?pc(q.accuracy):"—",q?MODEL_NAMES[qualityModel.value]:""],
+    ["Macro-F1 · "+methodLabel(qualityModel.value),q?f3(q.macro_f1):"—",q?q.size+" записей":""],
     ["Подтверждено меток",Object.values(S.labelsStore).reduce((s,o)=>s+Object.keys(o).length,0),"готово к дообучению"]
   ];
   $("#kpis").innerHTML=items.map(([l,v,s])=>
@@ -328,6 +329,7 @@ function renderQualityRadar(metrics){
 }
 
 function renderQuality(){
+  $("#evaluation-method").textContent = oofKeys.has(qualityModel.value) ? "Вневыборочные прогнозы" : "Прогнозы сохранённой модели, включая обучающие примеры";
   const q=qualityData();
   renderQualityRadar(q?.per);
   if(!q){$("#qKpis").innerHTML="";$("#cmChart").innerHTML='<div class="empty">Контрольные прогнозы недоступны</div>';
@@ -378,15 +380,16 @@ function renderMargin(){
   $("#mgLegend").innerHTML='<span><i style="background:#8c7b70"></i>все записи</span><span><i style="background:#c0392b"></i>ошибочные прогнозы</span><span><i style="background:var(--orange)"></i>средний margin</span>'}
 
 function renderDisputed(){
-  const all=S.oof.filter(h=>Object.keys(MODEL_NAMES).every(key=>h[key]!==h.truth));
-  const same=all.filter(h=>new Set(Object.keys(MODEL_NAMES).map(key=>h[key])).size===1);
-  $("#disputedKpi").innerHTML='<div class="metrics"><div class="card metric"><span>Ошиблись все три</span><strong>'+all.length+'</strong><em>из '+S.oof.length+'</em></div>'+
+  const keys=selectedModels().map(name=>name.toLowerCase());
+  const all=S.oof.filter(h=>keys.every(key=>h[key]!==h.truth));
+  const same=all.filter(h=>new Set(keys.map(key=>h[key])).size===1);
+  $("#disputedKpi").innerHTML='<div class="metrics"><div class="card metric"><span>Ошиблись выбранные модели</span><strong>'+all.length+'</strong><em>из '+S.oof.length+'</em></div>'+
     '<div class="card metric"><span>Совпал неверный ответ</span><strong>'+same.length+'</strong><em>общая причина, не случайность</em></div></div>';
   const rows=all.slice(0,12);
-  $("#disputedTable").innerHTML=rows.length?'<thead><tr><th class="number">Строка</th><th>Истина</th>'+Object.values(MODEL_NAMES).map(name=>'<th>'+esc(name)+'</th>').join("")+'<th class="number">margin</th></tr></thead><tbody>'+
+  $("#disputedTable").innerHTML=rows.length?'<thead><tr><th class="number">Строка</th><th>Истина</th>'+keys.map(key=>MODEL_NAMES[key]).map(name=>'<th>'+esc(name)+'</th>').join("")+'<th class="number">margin</th></tr></thead><tbody>'+
     rows.map(h=>'<tr><td class="number">'+h.source_line+'</td>'+
       '<td><span class="cls"><i class="sw" style="background:'+COLOR[h.truth]+'"></i>'+esc(RU[h.truth]||h.truth)+'</span></td>'+
-      Object.keys(MODEL_NAMES).map(key=>'<td>'+esc(RU[h[key]]||h[key])+'</td>').join("")+
+      keys.map(key=>'<td>'+esc(RU[h[key]]||h[key])+'</td>').join("")+
       '<td class="number">'+f3(Number(h[qualityModel.value+"_margin"]))+'</td></tr>').join("")+'</tbody>':'<tbody><tr><td class="empty">Спорных записей нет</td></tr></tbody>'}
 
 function renderDrift(){
@@ -504,20 +507,20 @@ function renderAll(){renderKpis();renderQuality();renderDrift();renderQueue()}
 /* ================= API ================= */
 /* ================= ЗАГРУЗКА РЕПОЗИТОРИЯ ================= */
 async function loadAll(){
-  S.sources={nna:"load",var:"load",hold:"load"};renderSources();
+  S.sources={nna:"load",var:"load"};renderSources();
   try{const t=await fetchText("Faults27x7_var");
     S.names=t.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);setSrc("var","ok")}
   catch(e){setSrc("var","bad");toast("Faults27x7_var недоступен — загрузите вручную","err")}
   try{const t=await fetchText("Faults.NNA");
     if(S.names.length){S.matrix=parseNNA(t,S.names);buildDataset();setSrc("nna","ok")}else setSrc("nna","bad")}
   catch(e){setSrc("nna","bad")}
-  try{S.oof=JSON.parse(await fetchText("oof.json"));setSrc("hold","ok")}
-  catch(e){setSrc("hold","bad")}
+  try{S.oof=JSON.parse(await fetchText("predictions.json"))}
+  catch(e){S.oof=[];toast("Не удалось загрузить результаты моделей","err")}
   renderAll();
   if(S.rows.length){
     if(S.oof.length){const rows=oofBatch(S.qModel);
-      addBatch("oof","Весь UCI · OOF · "+MODEL_NAMES[S.qModel],rows,
-        "Вневыборочные прогнозы по всем записям UCI.")}
+      addBatch("oof","Весь UCI · "+methodLabel(S.qModel)+" · "+MODEL_NAMES[S.qModel],rows,
+        "Оценка по всем записям UCI · "+methodLabel(S.qModel))}
     const payload = document.getElementById("dashboard-batch");
     if (payload) {
       const batch = JSON.parse(payload.textContent);
@@ -537,8 +540,8 @@ $("#batchSel").onchange=e=>{S.batchId=e.target.value;S.entry=null;assessCurrent(
 $("#qLimit").onchange=()=>{buildQueue();renderQueue()};
 $("#runDemo").onclick=runDriftDemo;
 $("#useHoldout").onclick=()=>{if(!S.oof.length){toast("Контрольные прогнозы не загружены","err");return}
-  addBatch("oof","Весь UCI · OOF · "+MODEL_NAMES[S.qModel],oofBatch(S.qModel),
-    "Вневыборочные прогнозы по всем записям UCI.");
+  addBatch("oof","Весь UCI · "+methodLabel(S.qModel)+" · "+MODEL_NAMES[S.qModel],oofBatch(S.qModel),
+    "Оценка по всем записям UCI · "+methodLabel(S.qModel));
   toast("Партия UCI загружена","ok")};
 $("#useShift").onclick=async ()=>{
   if(!S.baseline){toast("Дождитесь калибровки порогов","err");return}
@@ -589,7 +592,7 @@ $("#expJson").onclick=()=>{const q=qualityData();
     generated:new Date().toISOString(),dataset:S.rows.length,split:S.split?{train:S.split.train.length,validation:S.split.validation.length,pool:S.split.pool.length,test:S.split.test.length}:null,
     saved_accuracy_full_uci:Object.fromEntries(selectedModels().map(name => [name, savedAccuracy[name]])),
     cross_validation:Object.fromEntries(selectedModels().map(name => [name, CV[name]])),
-    oof:{model:qualityModel.value,accuracy:q?q.accuracy:null,macro_f1:q?q.macro_f1:null,per_class:q?q.per:null},
+    evaluation:{method:methodLabel(qualityModel.value),model:qualityModel.value,accuracy:q?q.accuracy:null,macro_f1:q?q.macro_f1:null,per_class:q?q.per:null},
     drift:S.drift?{status:S.drift.status,score:S.drift.score,threshold:S.drift.threshold,sample_size:S.drift.sample_size}:null,
     drift_demo:S.demo,labels_confirmed:Object.values(S.labelsStore).reduce((s,o)=>s+Object.keys(o).length,0),
     version:Number(document.getElementById("dashboard-version").value)},null,1),"application/json");

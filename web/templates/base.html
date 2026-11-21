@@ -30,7 +30,7 @@
               <label class="model-option">
                 <input type="radio" name="number" value="{{ number }}" {% if number == version.number %}checked{% endif %}>
                 <span><strong>v{{ number }} · {{ versions[number] }}</strong>
-                <small>XGBoost</small></span>
+                <small>{{ "XGBoost" if number in primary_models else "Случайный лес · дообученная версия" }}</small></span>
               </label>
             {% endfor %}
             <button class="button primary" type="submit">Применить</button>

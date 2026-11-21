@@ -52,17 +52,17 @@ def test_operator_flow(monkeypatch, tmp_path):
             assert "сохранена" in saved.text
             trained = post("/review/retrain", saved, batch=saved.context["batch_id"])
             assert f"Версия v{number} сохранена" in trained.text
-            assert trained.context["version"].number == 1
+            assert trained.context["version"].number == number - 1
             quality = client.get("/quality")
             selected = post("/models/select", quality, number=number, destination="quality")
-            assert selected.status_code == 404
+            assert selected.status_code == 200 and selected.context["version"].number == number
             review = client.get("/review")
-        assert client.get("/").context["version"].number == 1
+        assert client.get("/").context["version"].number == 3
         assert post("/models/select", review, number=1, destination="recognition").context["version"].number == 1
         client.cookies.clear()
         home = client.get("/")
         assert home.context["version"].number == 1
-        assert [m["number"] for m in client.get("/api/models").json()] == [0, 1, 1.1]
+        assert [m["number"] for m in client.get("/api/models").json()] == [0, 1, 1.1, 2, 3]
         assert client.post("/batches/demo", data={"csrf": "incorrect"}).status_code == 403
         assert client.get("/openapi.json").json()["paths"]["/api/predict"]
 
@@ -84,7 +84,14 @@ def test_operator_flow(monkeypatch, tmp_path):
             correct = sum(row[key] == row["truth"] for row in oof)
             assert correct / len(oof) == client.get("/quality?batch=uci").context["metrics"].accuracy
             assert all(0 <= row[key + "_margin"] <= row[key + "_score"] <= 1 for row in oof)
-        assert client.post("/api/predict?version=3", files=files).status_code == 404
+        assert client.post("/api/predict?version=3", files=files).status_code == 200
+        assert client.post("/api/predict?version=4", files=files).status_code == 404
+        rows = client.get("/dashboard/data/predictions.json").json()
+        for number in (2, 3):
+            key = f"randomforest-v{number}"
+            assert len(rows) == len(source)
+            hits = sum(row[key] == row["truth"] for row in rows)
+            assert home.context["full_metrics"][number].accuracy == hits / len(rows)
         assert client.get("/").context["batch"] is None
         uploaded = client.post("/batches/upload", data={"csrf": home.context["csrf"]}, files=files)
         assert uploaded.context["batch"].name == "small.json"

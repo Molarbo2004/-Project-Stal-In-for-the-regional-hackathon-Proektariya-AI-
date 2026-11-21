@@ -15,7 +15,7 @@
         <section class="card">
           <h2>Демонстрационные партии</h2>
           <div class="row">
-            <button class="button small" id="useHoldout">Весь UCI · {{ version.evaluation.size }} записей</button>
+            <button class="button small" id="useHoldout">Весь UCI · {{ full_metrics[version.number].size }} записей</button>
             <button class="button small" id="useShift">Партия: сдвиг яркости 128</button>
           </div>
         </section>
@@ -46,13 +46,13 @@
             <label class="model-option"><input type="checkbox" name="compare-model" value="{{ name }}" checked> v{{ n }} · {{ name }}</label>
           {% endfor %}</div>
         </fieldset>
-        <p>Все {{ version.evaluation.size }} записей UCI проверены по одному разу в стратифицированной проверке на пяти разбиениях (OOF). Для каждой записи прогноз сделала модель, обученная на остальных четырёх частях. Последний столбец показывает долю верных ответов исходного .pkl на всём UCI, включая знакомые ему примеры.</p>
-        <ul class="bars" aria-label="Macro-F1"><li><strong>Macro-F1</strong></li>{% for n, model in active_models.items() %}
+        <p>Все {{ full_metrics[version.number].size }} записей UCI проверены по одному разу в стратифицированной проверке на пяти разбиениях (OOF). Для каждой записи прогноз сделала модель, обученная на остальных четырёх частях. OOF рассчитан для трёх основных конфигураций. Последний столбец показывает долю верных ответов каждой сохранённой модели на всём UCI, включая знакомые ему примеры.</p>
+        <ul class="bars" aria-label="Macro-F1"><li><strong>Macro-F1</strong></li>{% for n in primary_models %}
           <li data-compare="{{ versions[n] }}"><span>v{{ n }} · {{ versions[n] }}</span><span class="track"><i style="width:{{ 100 * oof_metrics[n].macro_f1 }}%"></i></span><strong>{{ "%.3f"|format(oof_metrics[n].macro_f1) }}</strong></li>
         {% endfor %}</ul>
         <div class="table-wrap"><table>
-          <thead><tr><th>Модель</th><th>Accuracy OOF</th><th>Macro-F1 OOF</th><th>Accuracy .pkl на всём UCI</th></tr></thead>
-          <tbody>{% for n, model in active_models.items() %}<tr data-compare="{{ versions[n] }}"><th>v{{ n }} · {{ versions[n] }}</th><td>{{ "%.3f"|format(oof_metrics[n].accuracy) }}</td><td>{{ "%.3f"|format(oof_metrics[n].macro_f1) }}</td><td>{{ "%.3f"|format(model.evaluation.accuracy) }}</td></tr>{% endfor %}</tbody>
+          <thead><tr><th>Модель</th><th>Accuracy OOF</th><th>Macro-F1 OOF</th><th>Accuracy модели на всём UCI</th></tr></thead>
+          <tbody>{% for n, metrics in full_metrics.items() %}<tr data-compare="{{ versions[n] }}"><th>v{{ n }} · {{ versions[n] }}</th><td>{{ "%.3f"|format(oof_metrics[n].accuracy) if n in oof_metrics else "—" }}</td><td>{{ "%.3f"|format(oof_metrics[n].macro_f1) if n in oof_metrics else "—" }}</td><td>{{ "%.3f"|format(metrics.accuracy) }}</td></tr>{% endfor %}</tbody>
         </table></div>
       </section>
       <section class="card">
@@ -60,12 +60,12 @@
         <p>Для каждой конфигурации модель обучили заново на десяти общих разбиениях. В таблице приведены средние метрики и суммарное время обучения на CPU.</p>
         <div class="table-wrap"><table>
           <thead><tr><th>Модель</th><th>Accuracy</th><th>Macro-F1</th><th>Обучение, с</th></tr></thead>
-          <tbody>{% for n, name in versions.items() %}<tr data-compare="{{ versions[n] }}"><th>v{{ n }} · {{ name }}</th><td>{{ "%.3f"|format(cv[name].accuracy) }}</td><td>{{ "%.3f"|format(cv[name].macro_f1) }}</td><td>{{ "%.1f"|format(cv[name].fit_seconds) }}</td></tr>{% endfor %}</tbody>
+          <tbody>{% for n, name in primary_models.items() %}<tr data-compare="{{ versions[n] }}"><th>v{{ n }} · {{ name }}</th><td>{{ "%.3f"|format(cv[name].accuracy) }}</td><td>{{ "%.3f"|format(cv[name].macro_f1) }}</td><td>{{ "%.1f"|format(cv[name].fit_seconds) }}</td></tr>{% endfor %}</tbody>
         </table></div>
         <details><summary class="button">Точность по разбиениям и парный t-тест Диттериха</summary>
           <div class="table-wrap"><table>
-            <thead><tr><th>Повтор</th><th>Половина</th>{% for name in versions.values() %}<th data-compare="{{ name }}">{{ name }}</th>{% endfor %}</tr></thead>
-            <tbody>{% for row in folds %}<tr><td>{{ row.repeat }}</td><td>{{ row.fold }}</td>{% for name in versions.values() %}<td data-compare="{{ name }}">{{ "%.3f"|format(row[name]) }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+            <thead><tr><th>Повтор</th><th>Половина</th>{% for name in primary_models.values() %}<th data-compare="{{ name }}">{{ name }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for row in folds %}<tr><td>{{ row.repeat }}</td><td>{{ row.fold }}</td>{% for name in primary_models.values() %}<td data-compare="{{ name }}">{{ "%.3f"|format(row[name]) }}</td>{% endfor %}</tr>{% endfor %}</tbody>
           </table></div>
           {% for a, b, statistic, p in cv_pairs %}<p data-compare="{{ a }} {{ b }}">{{ a }} / {{ b }} · {% if statistic is not none %}t = {{ "%.3f"|format(statistic) }}, p = {{ "%.4f"|format(p) }}{% else %}нулевая дисперсия разностей{% endif %}</p>{% endfor %}
         </details>
@@ -84,7 +84,7 @@
     <section id="s-quality">
       <div class="card">
         <div class="card-head">
-          <h2>Качество на всём UCI · OOF</h2>
+          <h2>Качество на всём UCI</h2>
           <div class="row">
             <label for="quality-model">Модель для детализации</label>
             <select id="quality-model">{% for n, name in versions.items() %}
@@ -92,7 +92,7 @@
             {% endfor %}</select>
           </div>
         </div>
-        <p class="muted">Метрики рассчитаны по вневыборочным прогнозам для всех {{ version.evaluation.size }} записей. Строка <code>source_line</code> связывает прогноз с записью <code>Faults.NNA</code>.</p>
+        <p class="muted"><span id="evaluation-method"></span> · {{ full_metrics[version.number].size }} записей. Строка <code>source_line</code> связывает прогноз с записью <code>Faults.NNA</code>.</p>
         <div class="metrics" id="qKpis"></div>
       </div>
       <div class="columns">
@@ -117,7 +117,7 @@
         </section>
         <section class="card">
           <h2>Спорные записи</h2>
-          <p class="muted">Строки, где ошиблись все три модели — кандидаты на пересмотр разметки.</p>
+          <p class="muted">Строки, где ошиблись все выбранные модели — кандидаты на пересмотр разметки.</p>
           <div id="disputedKpi"></div>
           <div class="table-wrap"><table id="disputedTable"></table></div>
         </section>

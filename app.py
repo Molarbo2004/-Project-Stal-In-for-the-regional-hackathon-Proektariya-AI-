@@ -2,6 +2,7 @@ import os
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
@@ -34,6 +35,7 @@ api = APIRouter()
 class StalIn:
     def __init__(self, workspace_path: Path):
         features, self.labels = load_uci(ROOT)
+        self.features = features
         self.split = split_dataset(features, self.labels)
         self.baseline = fit_drift_baseline(self.split.train[0], self.split.validation[0])
         self.versions = {}
@@ -61,9 +63,36 @@ class StalIn:
         self.workspace = Workspace(workspace_path)
 
     def model_version(self, number: float) -> ModelVersion:
-        if number not in self.versions:
-            raise HTTPException(404, "Версия модели отсутствует.")
-        return self.versions[number]
+        if number in self.versions:
+            return self.versions[number]
+        if number >= 2 and float(number).is_integer():
+            try:
+                return self.workspace.load_version(int(number))
+            except ValueError:
+                pass
+        raise HTTPException(404, "Версия модели отсутствует.")
+
+    def model_names(self):
+        return {**MODELS, **{n: f"RandomForest-v{n}" for n in self.workspace.version_numbers()}}
+
+    @lru_cache(maxsize=64)
+    def trained_results(self, number):
+        model = self.model_version(number).model
+        predictions = predict(model, self.features)
+        metrics = evaluate_predictions(self.labels, predictions["class"], model.classes_)
+        return metrics, predictions
+
+    def dashboard_predictions(self):
+        results = pd.DataFrame(self.oof)
+        for number, name in self.model_names().items():
+            if number in MODELS:
+                continue
+            _, predictions = self.trained_results(number)
+            key = name.lower()
+            results[key] = predictions["class"]
+            results[key + "_margin"] = predictions["margin"]
+            results[key + "_score"] = predictions["score"]
+        return results.to_dict("records")
 
 
 def service(request: Request) -> StalIn:
@@ -73,7 +102,7 @@ def service(request: Request) -> StalIn:
 def chosen_model(request: Request) -> ModelVersion:
     qc = service(request)
     number = request.session.get("model", 1)
-    return qc.model_version(number if number in MODELS else 1)
+    return qc.model_version(number)
 
 
 def check_csrf(request: Request, csrf: Annotated[str, Form()]):
@@ -86,11 +115,13 @@ def render(request: Request, page: str, *, status_code=200, version=None, **cont
     qc = service(request)
     if "csrf" not in request.session:
         request.session["csrf"] = secrets.token_urlsafe(32)
+    names = qc.model_names()
     if page == "recognition":
-        context.update(pairs=qc.pairs, cv=qc.cv, folds=qc.folds, cv_pairs=qc.cv_pairs, active_models=qc.versions, oof_metrics=qc.oof_metrics)
+        full_metrics = {n: qc.versions[n].evaluation if n in MODELS else qc.trained_results(n)[0] for n in names}
+        context.update(pairs=qc.pairs, cv=qc.cv, folds=qc.folds, cv_pairs=qc.cv_pairs, full_metrics=full_metrics, oof_metrics=qc.oof_metrics)
     context.update(page=page, pages=PAGES, csrf=request.session["csrf"],
                    version=version or chosen_model(request),
-                   versions=MODELS,
+                   versions=names, primary_models=MODELS,
                    notice=request.session.pop("notice", None))
     return TEMPLATES.TemplateResponse(
         request, f"{page}.html", context=context, status_code=status_code,
@@ -248,8 +279,6 @@ def retrain(request: Request, batch: Annotated[str, Form()]):
 @site.post("/models/select", dependencies=[Depends(check_csrf)])
 def select_model(request: Request, number: Annotated[float, Form(ge=0)], destination: Annotated[str, Form()]):
     qc = service(request)
-    if number not in MODELS:
-        raise HTTPException(404, "Версия модели отсутствует.")
     request.session["model"] = qc.model_version(number).number
     page = destination if destination in PAGES else "recognition"
     return redirect(request, page)
@@ -265,7 +294,9 @@ def quality(request: Request, batch: str | None = None):
     if batch and batch != "uci" and current is None:
         raise HTTPException(404, "Партия отсутствует.")
     request.session["quality_batch"] = current.id if current else "uci"
-    metrics = qc.oof_metrics[version.number]
+    metrics = qc.oof_metrics.get(version.number)
+    if metrics is None and not current:
+        metrics = qc.trained_results(version.number)[0]
     batch_counts = []
     report = None
     confidence = None
@@ -290,6 +321,8 @@ def csv_response(csv: str, filename: str):
 
 @site.get("/dashboard/data/{name:path}")
 def dashboard_data(name: str, request: Request):
+    if name == "predictions.json":
+        return service(request).dashboard_predictions()
     if name == "oof.json":
         return service(request).oof
     if name == "holdout.json":
@@ -306,7 +339,7 @@ def health():
 
 @api.get("/api/models", tags=["Модели"])
 def models(request: Request):
-    return [{"number": n, "base": True, "name": name} for n, name in MODELS.items()]
+    return [{"number": n, "base": n in MODELS, "name": name} for n, name in service(request).model_names().items()]
 
 
 @api.post("/api/predict", tags=["Распознавание"])
