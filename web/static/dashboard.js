@@ -40,6 +40,26 @@ const S={
   labelsStore:{},demo:null,
   sources:{nna:"idle",var:"idle",hold:"idle"},calibrated:false
 };
+const comparisonInputs = $$('input[name="compare-model"]');
+const qualityModel = $("#quality-model");
+function selectedModels() {
+  return comparisonInputs.filter(input => input.checked).map(input => input.value);
+}
+function updateComparison() {
+  const selected = selectedModels();
+  for (const item of $$("[data-compare]")) {
+    item.hidden = !item.dataset.compare.split(" ").every(name => selected.includes(name));
+  }
+  $("[data-pairwise]").hidden = selected.length < 2;
+  for (const input of comparisonInputs) input.disabled = input.checked && selected.length === 1;
+  const keys = selected.map(name => name.toLowerCase());
+  for (const option of qualityModel.options) option.hidden = option.disabled = !keys.includes(option.value);
+  if (!keys.includes(qualityModel.value)) qualityModel.value = keys[0];
+  renderQuality();
+  renderKpis();
+}
+for (const input of comparisonInputs) input.addEventListener("change", updateComparison);
+qualityModel.addEventListener("change", () => { renderQuality(); renderKpis(); });
 const LS="steel-qc-dashboard";
 function persist(){try{localStorage.setItem(LS,JSON.stringify({labelsStore:S.labelsStore}))}catch(e){}}
 function restore(){try{const s=JSON.parse(localStorage.getItem(LS)||"{}");
@@ -253,7 +273,7 @@ function bars(el,items,colorFn){
 
 function renderKpis(){
   const b=currentBatch(),d=S.drift;
-  const [winner, best] = Object.entries(CV).sort((a, b) => b[1].macro_f1 - a[1].macro_f1)[0];
+  const [winner, best] = Object.entries(CV).filter(([name]) => selectedModels().includes(name)).sort((a, b) => b[1].macro_f1 - a[1].macro_f1)[0];
   const q=qualityData();
   const items=[
     ["Записей в датасете",S.rows.length||"—","UCI Steel Plates Faults"],
@@ -261,7 +281,7 @@ function renderKpis(){
     ["Лучшая модель по 5×2 CV",MODEL_NAMES[winner.toLowerCase()],"macro-F1 "+f3(best.macro_f1)],
     ["Партия",b?b.rows.length:"—",b?b.label:"не выбрана"],
     ["Мониторинг",d?STATUS[d.status]:"—",d&&d.score!=null?"KS "+f3(d.score)+" / порог "+f3(d.threshold):"нужно ≥ 30 записей"],
-    ["Accuracy на holdout",q?pc(q.accuracy):"—",q?MODEL_NAMES[S.qModel]:""],
+    ["Accuracy на holdout",q?pc(q.accuracy):"—",q?MODEL_NAMES[qualityModel.value]:""],
     ["Macro-F1 на holdout",q?f3(q.macro_f1):"—",q?q.size+" записей":""],
     ["Подтверждено меток",Object.values(S.labelsStore).reduce((s,o)=>s+Object.keys(o).length,0),"готово к дообучению"]
   ];
@@ -270,7 +290,7 @@ function renderKpis(){
 
 function qualityData(){
   if(!S.holdout.length)return null;
-  const truth=S.holdout.map(h=>h.truth),pred=S.holdout.map(h=>h[S.qModel]);
+  const truth=S.holdout.map(h=>h.truth),pred=S.holdout.map(h=>h[qualityModel.value]);
   if(pred.some(p=>p===undefined))return null;
   return confusion(truth,pred)}
 
@@ -335,13 +355,13 @@ function renderQuality(){
   renderMargin();renderDisputed()}
 
 function renderMargin(){
-  const key=S.qModel+"_margin";
+  const key=qualityModel.value+"_margin";
   const vals=S.holdout.map(h=>Number(h[key])).filter(v=>!isNaN(v));
   if(!vals.length){$("#mgChart").innerHTML="";return}
   const bins=20,h=new Array(bins).fill(0);
   vals.forEach(v=>{h[clamp(Math.floor(v*bins),0,bins-1)]++});
   const max=Math.max(...h),W=520,H=150,bw=W/bins;
-  const wrong=S.holdout.map((r,i)=>r.truth!==r[S.qModel]);
+  const wrong=S.holdout.map((r,i)=>r.truth!==r[qualityModel.value]);
   const hw=new Array(bins).fill(0);
   vals.forEach((v,i)=>{if(wrong[i])hw[clamp(Math.floor(v*bins),0,bins-1)]++});
   let s='<svg class="chart" viewBox="0 0 '+W+' '+(H+24)+'" role="img" aria-label="Распределение margin">';
@@ -367,7 +387,7 @@ function renderDisputed(){
     rows.map(h=>'<tr><td class="number">'+h.source_line+'</td>'+
       '<td><span class="cls"><i class="sw" style="background:'+COLOR[h.truth]+'"></i>'+esc(RU[h.truth]||h.truth)+'</span></td>'+
       Object.keys(MODEL_NAMES).map(key=>'<td>'+esc(RU[h[key]]||h[key])+'</td>').join("")+
-      '<td class="number">'+f3(Number(h[S.qModel+"_margin"]))+'</td></tr>').join("")+'</tbody>':'<tbody><tr><td class="empty">Спорных записей нет</td></tr></tbody>'}
+      '<td class="number">'+f3(Number(h[qualityModel.value+"_margin"]))+'</td></tr>').join("")+'</tbody>':'<tbody><tr><td class="empty">Спорных записей нет</td></tr></tbody>'}
 
 function renderDrift(){
   const d=S.drift,b=currentBatch();
@@ -563,8 +583,8 @@ $("#expKs").onclick=()=>{if(!S.drift||!S.drift.scores||!S.drift.scores.length){t
 $("#expJson").onclick=()=>{const q=qualityData();
   download("stal-in-dashboard.json",JSON.stringify({
     generated:new Date().toISOString(),dataset:S.rows.length,split:S.split?{train:S.split.train.length,validation:S.split.validation.length,pool:S.split.pool.length,test:S.split.test.length}:null,
-    cross_validation:CV,
-    holdout:{model:S.qModel,accuracy:q?q.accuracy:null,macro_f1:q?q.macro_f1:null,per_class:q?q.per:null},
+    cross_validation:Object.fromEntries(selectedModels().map(name => [name, CV[name]])),
+    holdout:{model:qualityModel.value,accuracy:q?q.accuracy:null,macro_f1:q?q.macro_f1:null,per_class:q?q.per:null},
     drift:S.drift?{status:S.drift.status,score:S.drift.score,threshold:S.drift.threshold,sample_size:S.drift.sample_size}:null,
     drift_demo:S.demo,labels_confirmed:Object.values(S.labelsStore).reduce((s,o)=>s+Object.keys(o).length,0),
     version:Number(document.getElementById("dashboard-version").value)},null,1),"application/json");
@@ -579,5 +599,6 @@ window.addEventListener("scroll",()=>{
 
 /* ================= СТАРТ ================= */
 restore();
+updateComparison();
 renderSources();renderAll();
 loadAll();

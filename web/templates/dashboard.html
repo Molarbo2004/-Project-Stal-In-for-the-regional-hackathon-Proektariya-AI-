@@ -40,13 +40,19 @@
     <section id="s-models">
       <section class="card">
         <h2>Сравнение моделей</h2>
+        <fieldset class="comparison-picker">
+          <legend>Модели для сравнения</legend>
+          <div class="row">{% for n, name in versions.items() %}
+            <label class="model-option"><input type="checkbox" name="compare-model" value="{{ name }}" checked> v{{ n }} · {{ name }}</label>
+          {% endfor %}</div>
+        </fieldset>
         <p>Accuracy и macro-F1 рассчитаны для трёх сохранённых моделей на одних и тех же {{ version.evaluation.size }} записях UCI. Эти оценки справочные, поскольку обучающие выборки сохранённых моделей могли включать контрольные записи.</p>
         <ul class="bars" aria-label="Macro-F1"><li><strong>Macro-F1</strong></li>{% for n, model in active_models.items() %}
-          <li><span>v{{ n }} · {{ versions[n] }}</span><span class="track"><i style="width:{{ 100 * model.evaluation.macro_f1 }}%"></i></span><strong>{{ "%.3f"|format(model.evaluation.macro_f1) }}</strong></li>
+          <li data-compare="{{ versions[n] }}"><span>v{{ n }} · {{ versions[n] }}</span><span class="track"><i style="width:{{ 100 * model.evaluation.macro_f1 }}%"></i></span><strong>{{ "%.3f"|format(model.evaluation.macro_f1) }}</strong></li>
         {% endfor %}</ul>
         <div class="table-wrap"><table>
           <thead><tr><th>Модель</th><th>Accuracy</th><th>Macro-F1</th></tr></thead>
-          <tbody>{% for n, model in active_models.items() %}<tr><th>v{{ n }} · {{ versions[n] }}</th><td>{{ "%.3f"|format(model.evaluation.accuracy) }}</td><td>{{ "%.3f"|format(model.evaluation.macro_f1) }}</td></tr>{% endfor %}</tbody>
+          <tbody>{% for n, model in active_models.items() %}<tr data-compare="{{ versions[n] }}"><th>v{{ n }} · {{ versions[n] }}</th><td>{{ "%.3f"|format(model.evaluation.accuracy) }}</td><td>{{ "%.3f"|format(model.evaluation.macro_f1) }}</td></tr>{% endfor %}</tbody>
         </table></div>
       </section>
       <section class="card">
@@ -54,22 +60,22 @@
         <p>Для каждой конфигурации модель обучили заново на десяти общих разбиениях. В таблице приведены средние метрики и суммарное время обучения на CPU.</p>
         <div class="table-wrap"><table>
           <thead><tr><th>Модель</th><th>Accuracy</th><th>Macro-F1</th><th>Обучение, с</th></tr></thead>
-          <tbody>{% for n, name in versions.items() %}<tr><th>v{{ n }} · {{ name }}</th><td>{{ "%.3f"|format(cv[name].accuracy) }}</td><td>{{ "%.3f"|format(cv[name].macro_f1) }}</td><td>{{ "%.1f"|format(cv[name].fit_seconds) }}</td></tr>{% endfor %}</tbody>
+          <tbody>{% for n, name in versions.items() %}<tr data-compare="{{ versions[n] }}"><th>v{{ n }} · {{ name }}</th><td>{{ "%.3f"|format(cv[name].accuracy) }}</td><td>{{ "%.3f"|format(cv[name].macro_f1) }}</td><td>{{ "%.1f"|format(cv[name].fit_seconds) }}</td></tr>{% endfor %}</tbody>
         </table></div>
         <details><summary class="button">Точность по разбиениям и парный t-тест Диттериха</summary>
           <div class="table-wrap"><table>
-            <thead><tr><th>Повтор</th><th>Половина</th>{% for name in versions.values() %}<th>{{ name }}</th>{% endfor %}</tr></thead>
-            <tbody>{% for row in folds %}<tr><td>{{ row.repeat }}</td><td>{{ row.fold }}</td>{% for name in versions.values() %}<td>{{ "%.3f"|format(row[name]) }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+            <thead><tr><th>Повтор</th><th>Половина</th>{% for name in versions.values() %}<th data-compare="{{ name }}">{{ name }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for row in folds %}<tr><td>{{ row.repeat }}</td><td>{{ row.fold }}</td>{% for name in versions.values() %}<td data-compare="{{ name }}">{{ "%.3f"|format(row[name]) }}</td>{% endfor %}</tr>{% endfor %}</tbody>
           </table></div>
-          {% for a, b, statistic, p in cv_pairs %}<p>{{ a }} / {{ b }} · {% if statistic is not none %}t = {{ "%.3f"|format(statistic) }}, p = {{ "%.4f"|format(p) }}{% else %}нулевая дисперсия разностей{% endif %}</p>{% endfor %}
+          {% for a, b, statistic, p in cv_pairs %}<p data-compare="{{ a }} {{ b }}">{{ a }} / {{ b }} · {% if statistic is not none %}t = {{ "%.3f"|format(statistic) }}, p = {{ "%.4f"|format(p) }}{% else %}нулевая дисперсия разностей{% endif %}</p>{% endfor %}
         </details>
       </section>
-      <section class="card">
+      <section class="card" data-pairwise>
         <h2>Тест Мак-Немара</h2>
         <p>Сравнение прогнозов сохранённых моделей на контрольной выборке UCI. Для каждой пары показаны односторонние выигрыши и точное двустороннее p-значение.</p>
         <div class="table-wrap"><table>
           <thead><tr><th>Пара моделей</th><th>Верно только у первой</th><th>Верно только у второй</th><th>p</th></tr></thead>
-          <tbody>{% for a, b, wins, losses, p in pairs %}<tr><th>{{ a }} / {{ b }}</th><td>{{ wins }}</td><td>{{ losses }}</td><td>{{ "%.4f"|format(p) }}</td></tr>{% endfor %}</tbody>
+          <tbody>{% for a, b, wins, losses, p in pairs %}<tr data-compare="{{ a }} {{ b }}"><th>{{ a }} / {{ b }}</th><td>{{ wins }}</td><td>{{ losses }}</td><td>{{ "%.4f"|format(p) }}</td></tr>{% endfor %}</tbody>
         </table></div>
       </section>
     </section>
@@ -80,7 +86,10 @@
         <div class="card-head">
           <h2>Качество на holdout</h2>
           <div class="row">
-            <span class="badge">v{{ version.number }} · {{ versions[version.number] }}</span>
+            <label for="quality-model">Модель для детализации</label>
+            <select id="quality-model">{% for n, name in versions.items() %}
+              <option value="{{ name|lower }}" {% if n == version.number %}selected{% endif %}>v{{ n }} · {{ name }}</option>
+            {% endfor %}</select>
           </div>
         </div>
         <p class="muted">Метрики считаются в браузере из ваших реальных прогнозов на фиксированной тестовой выборке. Строка <code>source_line</code> связывает прогноз с записью <code>Faults.NNA</code>.</p>
