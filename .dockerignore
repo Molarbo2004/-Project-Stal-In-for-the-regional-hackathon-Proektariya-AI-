@@ -1,0 +1,15 @@
+**
+!requirements.txt
+!app.py
+!Faults.NNA
+!Faults27x7_var
+!faults/
+!faults/*.py
+!web/
+!web/templates/
+!web/templates/*.html
+!web/static/
+!web/static/*.css
+!web/static/*.js
+!base model/
+!base model/*.pkl

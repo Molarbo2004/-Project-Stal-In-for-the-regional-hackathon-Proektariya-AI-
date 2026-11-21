@@ -1,0 +1,22 @@
+﻿source_line,truth,xgb,xgb_margin,hist,hist_margin,smote,smote_margin,rf,rf_margin,top3_errors,other_among_five,bumps_among_five,neighbor_labels,neighbor_source_lines,Pixels_Areas,Steel_Plate_Thickness,TypeOfSteel_A300
+1269,Other_Faults,Bumps,0.42928475,Bumps,0.711921746878672,Bumps,0.34165448,Bumps,0.0249999999999999,3,3,2,"Other_Faults, Other_Faults, Other_Faults, Bumps, Bumps","1605, 1453, 1474, 1246, 1085",137.0,40.0,0.0
+1274,Other_Faults,Pastry,0.5478913,Pastry,0.766309054665941,Pastry,0.65383613,Other_Faults,0.04375,3,1,2,"Pastry, Bumps, Other_Faults, Pastry, Bumps","42, 877, 1653, 88, 1120",269.0,70.0,0.0
+1275,Other_Faults,Pastry,0.5625808,Pastry,0.5068899850092123,Pastry,0.76244724,Pastry,0.175,3,1,1,"Pastry, Bumps, Pastry, Other_Faults, Pastry","42, 877, 104, 1286, 88",375.0,70.0,0.0
+1278,Other_Faults,K_Scatch,0.9977805,K_Scatch,0.99932478283921,K_Scatch,0.99827576,K_Scatch,1.0,3,0,0,"K_Scatch, K_Scatch, K_Scatch, K_Scatch, K_Scatch","682, 694, 668, 697, 648",5951.0,40.0,0.0
+1308,Other_Faults,Pastry,0.60331786,Pastry,0.7284899451912669,Pastry,0.8113472,Other_Faults,0.0687499999999999,3,1,1,"Other_Faults, Pastry, Pastry, Bumps, Pastry","1309, 158, 157, 907, 156",124.0,100.0,1.0
+1343,Other_Faults,Bumps,0.39583915,Bumps,0.7301906526706425,Bumps,0.59720725,Bumps,0.1625,3,3,1,"Other_Faults, Other_Faults, Other_Faults, Pastry, Bumps","1344, 1812, 1820, 86, 1120",114.0,185.0,0.0
+1414,Other_Faults,Bumps,0.25785384,Bumps,0.0221759033894494,Bumps,0.25146446,Other_Faults,0.05625,3,2,2,"Other_Faults, Other_Faults, Bumps, Bumps, Pastry","1635, 1609, 1019, 1049, 65",70.0,100.0,1.0
+1441,Other_Faults,Bumps,0.14244384,Bumps,0.1459159386829784,Bumps,0.11905846,Bumps,0.18125,3,1,4,"Bumps, Bumps, Other_Faults, Bumps, Bumps","1163, 1159, 1473, 1148, 1003",476.0,100.0,1.0
+1564,Other_Faults,Bumps,0.03393203,Z_Scratch,0.0317403542871093,Z_Scratch,0.5969646,Bumps,0.05625,3,1,2,"Z_Scratch, Other_Faults, Bumps, Z_Scratch, Bumps","243, 1880, 884, 247, 1208",90.0,50.0,1.0
+1568,Other_Faults,Pastry,0.18890086,Pastry,0.0466572775654133,Z_Scratch,0.03438723,Other_Faults,0.0062499999999999,3,0,0,"Z_Scratch, Z_Scratch, Z_Scratch, Z_Scratch, Z_Scratch","213, 168, 217, 208, 184",836.0,150.0,1.0
+1588,Other_Faults,Bumps,0.2339628,Bumps,0.5221372810319993,Bumps,0.4092833,Bumps,0.1937499999999999,3,2,3,"Bumps, Other_Faults, Bumps, Bumps, Other_Faults","1003, 1402, 942, 1213, 1880",333.0,100.0,1.0
+1631,Other_Faults,Pastry,0.3706962,Pastry,0.7371457584516922,Pastry,0.6864009,Bumps,0.0999999999999999,3,3,1,"Bumps, Pastry, Other_Faults, Other_Faults, Other_Faults","1146, 135, 1350, 1886, 1447",145.0,100.0,1.0
+1637,Other_Faults,Bumps,0.3717472,Bumps,0.2338717737487384,Bumps,0.7204054,Bumps,0.35625,3,2,3,"Bumps, Bumps, Other_Faults, Other_Faults, Bumps","1021, 1019, 1444, 1612, 999",149.0,80.0,1.0
+1644,Other_Faults,Bumps,0.32100335,Bumps,0.3745578277278905,Bumps,0.25829652,Bumps,0.1187499999999999,3,1,4,"Bumps, Bumps, Bumps, Bumps, Other_Faults","982, 971, 1076, 979, 1342",66.0,40.0,0.0
+1662,Other_Faults,Bumps,0.5433636,Bumps,0.8309140648040757,Bumps,0.8781149,Bumps,0.35,3,3,2,"Other_Faults, Bumps, Other_Faults, Bumps, Other_Faults","1446, 1177, 1435, 1166, 1450",103.0,80.0,1.0
+1753,Other_Faults,Z_Scratch,0.8232304,Z_Scratch,0.924671777219362,Z_Scratch,0.93380725,Z_Scratch,0.425,3,2,0,"Z_Scratch, Other_Faults, Z_Scratch, Other_Faults, Z_Scratch","292, 1374, 282, 1431, 284",59.0,70.0,1.0
+1794,Other_Faults,Pastry,0.04062584,Pastry,0.2462296097122986,Dirtiness,0.33492896,Other_Faults,0.025,3,1,0,"Z_Scratch, Other_Faults, Pastry, Z_Scratch, Z_Scratch","228, 1574, 136, 208, 239",4758.0,120.0,1.0
+1815,Other_Faults,Bumps,0.14934078,Bumps,0.1338309132585597,Bumps,0.10260132,Other_Faults,0.09375,3,3,2,"Other_Faults, Bumps, Other_Faults, Bumps, Other_Faults","1606, 918, 1430, 908, 1569",365.0,100.0,1.0
+1822,Other_Faults,Pastry,0.41858855,Pastry,0.5952153064578832,Dirtiness,0.1326111,Pastry,0.1375,3,1,0,"Pastry, Pastry, Pastry, Pastry, Other_Faults","149, 91, 32, 138, 1337",583.0,40.0,0.0
+1873,Other_Faults,Bumps,0.3727726,Bumps,0.7839734050571041,Bumps,0.3642942,Bumps,0.3,3,1,4,"Bumps, Bumps, Bumps, Other_Faults, Bumps","946, 959, 1061, 1411, 1059",56.0,70.0,1.0
+1941,Other_Faults,Bumps,0.12019491,Bumps,0.6082753956962872,Bumps,0.22643664,Bumps,0.1375,3,1,2,"Z_Scratch, Other_Faults, Z_Scratch, Bumps, Bumps","188, 1880, 179, 890, 986",103.0,80.0,1.0

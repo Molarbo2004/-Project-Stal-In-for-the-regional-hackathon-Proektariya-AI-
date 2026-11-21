@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: steel-qc
+    runtime: docker
+    plan: free
+    autoDeployTrigger: commit
+    healthCheckPath: /healthz
+    envVars:
+      - key: STEEL_QC_SESSION_SECRET
+        generateValue: true

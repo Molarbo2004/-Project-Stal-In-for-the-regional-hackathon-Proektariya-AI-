@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "components.html" import csrf_field %}
+{% block title %}Проверка партии{% endblock %}
+{% block heading %}
+  <h1>Проверка партии</h1>
+  <p class="intro">Мониторинг сдвига и разметка прогнозов</p>
+{% endblock %}
+{% block content %}
+  {% if not batches %}
+    <section class="card">
+      <h2>Нет партии для проверки</h2>
+      <p class="muted">Загрузите файл или откройте пример.</p>
+      <a href="/" class="button primary full">К распознаванию</a>
+    </section>
+  {% else %}
+    <form method="get" action="/review" class="card picker">
+      <label for="batch">Партии в порядке приоритета</label>
+      <div class="input-row">
+        <select id="batch" name="batch">
+          {% for item in batches %}<option value="{{ item.id }}" {% if item.id == batch_id %}selected{% endif %}>{{ item.name }} · {{ statuses[item.status] }} · {{ item.count }} записей</option>{% endfor %}
+        </select>
+        <button class="button" type="submit">Открыть</button>
+      </div>
+    </form>
+    {% if report.status == "shift" %}
+      <div class="status warning"><strong>Обнаружен сдвиг</strong><p>Наибольшее изменение · {{ report.scores.index[0] }}</p></div>
+    {% elif report.status == "stable" %}
+      <div class="status success">Партия в пределах порога мониторинга.</div>
+    {% else %}
+      <div class="status neutral">Для оценки сдвига нужно не менее {{ minimum_batch }} записей.</div>
+    {% endif %}
+    <div class="columns">
+      <section class="card">
+        <h2>Очередь на разметку</h2>
+        {% if entry %}
+          <form method="get" action="/review" class="picker">
+            <input type="hidden" name="batch" value="{{ batch_id }}">
+            <label for="position">Запись</label>
+            <div class="input-row">
+              <select id="position" name="position">
+                {% for row in queue %}<option value="{{ row.position }}" {% if row.position == entry.position %}selected{% endif %}>{{ "%03d"|format(row.position + 1) }} · {{ row["class"] }}</option>{% endfor %}
+              </select>
+              <button class="button" type="submit">Показать</button>
+            </div>
+          </form>
+          <div class="summary-line"><span>Прогноз v{{ version.number }} · {{ entry["class"] }}</span>
+            <span class="badge">Разрыв топ-2 · {{ "%.3f"|format(entry.margin) }}</span></div>
+          <details class="extra">
+            <summary>Характеристики дефекта</summary>
+            <dl class="data-list">{% for name, value in characteristics %}<dt>{{ name }}</dt><dd>{{ "%g"|format(value) }}</dd>{% endfor %}</dl>
+          </details>
+          <form method="post" action="/review/label" class="stack label-form">
+            {{ csrf_field(csrf) }}
+            <input type="hidden" name="batch" value="{{ batch_id }}">
+            <input type="hidden" name="position" value="{{ entry.position }}">
+            <label for="label">Подтверждённый тип</label>
+            <select id="label" name="label">
+              {% for label in categories %}<option {% if label == entry["class"] %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+            <button class="button primary full" type="submit">Сохранить метку</button>
+          </form>
+        {% else %}
+          <p class="muted">Все записи проверены.</p>
+        {% endif %}
+      </section>
+      <div class="stack">
+        <section class="card">
+          <h2>Обновление модели</h2>
+          <p class="muted">Активна v{{ version.number }} · пригодных меток {{ eligible }}</p>
+          <form method="post" action="/review/retrain">
+            {{ csrf_field(csrf) }}
+            <input type="hidden" name="batch" value="{{ batch_id }}">
+            <button class="button primary full" type="submit" data-busy="Обучение модели…" {% if not eligible %}disabled{% endif %}>Запустить дообучение</button>
+          </form>
+        </section>
+        {% if report.score is not none %}
+          <section class="card">
+            <h2>Наибольший сдвиг</h2>
+            <p class="muted">Оценка {{ "%.3f"|format(report.score) }} · порог {{ "%.3f"|format(report.threshold) }} · {{ report.sample_size }} записей</p>
+            <dl class="data-list">{% for name, score in report.scores.head(5).items() %}
+              <dt>{{ name }}</dt><dd>{{ "%.3f"|format(score) }}</dd>
+            {% endfor %}</dl>
+          </section>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

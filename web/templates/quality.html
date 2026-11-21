@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "components.html" import distribution, metric %}
+{% block title %}Качество модели{% endblock %}
+{% block heading %}
+  <h1>Качество модели</h1>
+  <p class="intro">Фиксированная выборка · {{ metrics.size }} записей · модель v{{ version.number }}</p>
+{% endblock %}
+{% block content %}
+  <div class="metrics">
+    {{ metric("Верные прогнозы", "%.1f"|format(metrics.accuracy * 100) ~ " %") }}
+    {{ metric("Macro-F1", "%.3f"|format(metrics.macro_f1)) }}
+  </div>
+  {% if version.number == 1 %}
+    <div class="status warning">
+      <strong>Справочные метрики v1</strong>
+      <p>Часть выборки использовалась при обучении базовой модели.</p>
+    </div>
+  {% endif %}
+  <div class="columns">
+    <section class="card">
+      <h2>Метрики по категориям</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">Категория</th><th scope="col" class="number">F1</th><th scope="col" class="number">Записей</th><th scope="col" class="number wide">Precision</th><th scope="col" class="number wide">Recall</th></tr></thead>
+        <tbody>{% for name, row in metrics.per_class.iterrows() %}<tr>
+          <th scope="row">{{ name }}</th><td class="number">{{ "%.3f"|format(row.f1) }}</td>
+          <td class="number">{{ row.support|int }}</td><td class="number wide">{{ "%.3f"|format(row.precision) }}</td>
+          <td class="number wide">{{ "%.3f"|format(row.recall) }}</td>
+        </tr>{% endfor %}</tbody>
+      </table></div>
+    </section>
+    {{ distribution("Распределение UCI", "Фактические метки · " ~ actual_size ~ " дефект", actual_counts) }}
+  </div>
+  {% if batch_counts %}
+    {{ distribution("Категории текущей партии", "По прогнозам модели v" ~ version.number, batch_counts) }}
+  {% endif %}
+{% endblock %}

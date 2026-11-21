@@ -1,0 +1,20 @@
+{% macro csrf_field(token) -%}
+  <input type="hidden" name="csrf" value="{{ token }}">
+{%- endmacro %}
+
+{% macro metric(label, value) %}
+  <div class="card metric"><span>{{ label }}</span><strong>{{ value }}</strong></div>
+{% endmacro %}
+
+{% macro distribution(title, caption, items) %}
+  <section class="card">
+    <h2>{{ title }}</h2>
+    <p class="muted">{{ caption }}</p>
+    {% set maximum = items[0][1] if items else 1 %}
+    <ul class="bars">
+      {% for label, amount in items %}
+        <li><span>{{ label }}</span><meter min="0" max="{{ maximum }}" value="{{ amount }}" aria-label="{{ label }}"></meter><strong>{{ amount }}</strong></li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endmacro %}

@@ -1,0 +1,58 @@
+{% from "components.html" import csrf_field %}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1c1815">
+  <title>{% block title %}{{ pages[page] }}{% endblock %} · Steel QC</title>
+  <link rel="stylesheet" href="/static/steel.css">
+  <script src="/static/steel.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Перейти к содержимому</a>
+  <div class="shell">
+    <header class="chrome">
+      <a class="brand" href="/">
+        <span class="logo" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><strong>Steel QC</strong><small>Контроль стальных листов</small></span>
+      </a>
+      <details class="model-selector">
+        <summary>Модель v{{ version.number }}</summary>
+        <div class="model-panel">
+          <h2>Выбрать модель</h2>
+          <form action="/models/select" method="post" class="stack">
+            {{ csrf_field(csrf) }}
+            <input type="hidden" name="destination" value="{{ page }}">
+            {% if experiment_open %}<input type="hidden" name="run" value="true">{% endif %}
+            {% for number in versions %}
+              <label class="model-option">
+                <input type="radio" name="number" value="{{ number }}" {% if number == version.number %}checked{% endif %}>
+                <span><strong>v{{ number }} · {{ "Базовая модель" if number == 1 else "Дообученная модель" }}</strong>
+                <small>{{ "XGBoost" if number == 1 else "Случайный лес" }}</small></span>
+              </label>
+            {% endfor %}
+            <button class="button primary" type="submit">Применить</button>
+            <button class="button" type="button" data-close-model hidden>Закрыть</button>
+          </form>
+        </div>
+      </details>
+      <nav class="nav" aria-label="Разделы">
+        {% set paths = {"recognition": "/", "review": "/review", "quality": "/quality", "experiment": "/experiment"} %}
+        {% for key, label in pages.items() %}
+          <a href="{{ paths[key] }}" {% if key == page %}aria-current="page"{% endif %}>
+            <span class="nav-icon icon-{{ key }}" aria-hidden="true"></span>
+            <span>{{ label }}</span>
+          </a>
+        {% endfor %}
+      </nav>
+    </header>
+    <main id="main">
+      {% block heading %}{% endblock %}
+      {% if notice %}<div class="status {{ notice[0] }}" role="status">{{ notice[1] }}</div>{% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>
+

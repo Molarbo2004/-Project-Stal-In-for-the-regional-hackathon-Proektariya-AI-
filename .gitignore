@@ -1,0 +1,6 @@
+.venv/
+.uv-cache/
+.deps/
+.steel-qc/
+__pycache__/
+.pytest_cache/
