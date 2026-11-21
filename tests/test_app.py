@@ -62,12 +62,16 @@ def test_operator_flow(monkeypatch, tmp_path):
         client.cookies.clear()
         home = client.get("/")
         assert home.context["version"].number == 1
-        assert [m["number"] for m in client.get("/api/models").json()] == [1, 2, 3]
+        assert [m["number"] for m in client.get("/api/models").json()] == [1, 0, 2, 3]
         assert client.post("/batches/demo", data={"csrf": "incorrect"}).status_code == 403
         assert client.get("/openapi.json").json()["paths"]["/api/predict"]
 
         records = load_uci(APP.parent)[0].iloc[:2].to_json(orient="records")
         files = {"file": ("small.json", records, "application/json")}
+        optuna = post("/models/select", home, number=0, destination="quality")
+        assert optuna.context["version"].number == 0 and "Optuna" in optuna.text
+        optuna_result = client.post("/api/predict?version=0", files=files).json()
+        assert optuna_result["version"] == 0 and len(optuna_result["predictions"]) == 2
         forecast = client.post("/api/predict?version=3", files=files).json()
         assert forecast["version"] == 3 and len(forecast["predictions"]) == 2
         assert forecast["monitoring"] == "insufficient_data"

@@ -42,11 +42,15 @@ class StalIn:
         self.baseline = fit_drift_baseline(self.split.train[0], self.split.validation[0])
         model = BaseModel(ROOT / "base model")
         self.initial = ModelVersion(1, model, evaluate(model, *self.split.test), 0)
+        optuna = BaseModel(ROOT / "base model", optuna=True)
+        self.optuna = ModelVersion(0, optuna, evaluate(optuna, *self.split.test), 0)
         self.workspace = Workspace(workspace_path)
         self._experiment_lock = Lock()
         self._experiment = None
 
     def model_version(self, number: int) -> ModelVersion:
+        if number == 0:
+            return self.optuna
         if number == 1:
             return self.initial
         try:
@@ -85,7 +89,7 @@ def render(request: Request, page: str, *, status_code=200, version=None, **cont
         request.session["csrf"] = secrets.token_urlsafe(32)
     context.update(page=page, pages=PAGES, csrf=request.session["csrf"],
                    version=version or chosen_model(request),
-                   versions=[1, *qc.workspace.version_numbers()],
+                   versions=[1, 0, *qc.workspace.version_numbers()],
                    notice=request.session.pop("notice", None),
                    experiment_open=request.query_params.get("run") == "true")
     return TEMPLATES.TemplateResponse(
@@ -236,10 +240,10 @@ def retrain(request: Request, batch: Annotated[str, Form()]):
 
 
 @site.post("/models/select", dependencies=[Depends(check_csrf)])
-def select_model(request: Request, number: Annotated[int, Form(ge=1)], destination: Annotated[str, Form()],
+def select_model(request: Request, number: Annotated[int, Form(ge=0)], destination: Annotated[str, Form()],
                  run: Annotated[bool, Form()] = False):
     qc = service(request)
-    if number != 1 and number not in qc.workspace.version_numbers():
+    if number not in (0, 1) and number not in qc.workspace.version_numbers():
         raise HTTPException(404, "Версия модели отсутствует.")
     request.session["model"] = number
     page = destination if destination in PAGES else "recognition"
@@ -318,11 +322,12 @@ def health():
 
 @api.get("/api/models", tags=["Модели"])
 def models(request: Request):
-    return [{"number": n, "base": n == 1} for n in [1, *service(request).workspace.version_numbers()]]
+    return [{"number": n, "base": n in (0, 1), "name": "XGBoost · Optuna" if n == 0 else f"v{n}"}
+            for n in [1, 0, *service(request).workspace.version_numbers()]]
 
 
 @api.post("/api/predict", tags=["Распознавание"])
-def predict_batch(request: Request, file: UploadFile, version: Annotated[int, Query(ge=1)] = 1,
+def predict_batch(request: Request, file: UploadFile, version: Annotated[int, Query(ge=0)] = 1,
                   include_features: bool = False):
     """Классифицирует CSV, JSON или BSON без записи партии в рабочее пространство."""
     qc = service(request)

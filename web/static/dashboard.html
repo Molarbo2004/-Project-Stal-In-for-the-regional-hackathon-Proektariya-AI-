@@ -1040,12 +1040,12 @@ async function connectApi(){
     toast("Приложение недоступно — работаем на файлах репозитория","err")}}
 
 function renderModelSelector(){
-  $("#msSummary").textContent="Модель v"+S.api.version;
+  $("#msSummary").textContent=S.api.version===0?"XGBoost · Optuna":"Модель v"+S.api.version;
   $("#msList").innerHTML=S.api.models.map(n=>
     '<label class="model-option"><input type="radio" name="mv" value="'+n+'"'+(n===S.api.version?" checked":"")+'>'+
-    '<span><strong>v'+n+' · '+(n===1?"Базовая модель":"Дообученная модель")+'</strong><small>'+(n===1?"XGBoost":"Случайный лес")+'</small></span></label>').join("");
+    '<span><strong>v'+n+' · '+(n===0?"Optuna":n===1?"Базовая модель":"Дообученная модель")+'</strong><small>'+(n<=1?"XGBoost":"Случайный лес")+'</small></span></label>').join("");
   $$("#msList input").forEach(i=>i.onchange=()=>{S.api.version=Number(i.value);
-    $("#msSummary").textContent="Модель v"+S.api.version;$(".model-selector").open=false;
+    $("#msSummary").textContent=S.api.version===0?"XGBoost · Optuna":"Модель v"+S.api.version;$(".model-selector").open=false;
     toast("Для /api/predict выбрана версия v"+S.api.version)})}
 
 async function uploadBatch(file){

@@ -19,7 +19,7 @@
         <span><strong>Stal-In</strong><small>Контроль стальных листов</small></span>
       </a>
       <details class="model-selector">
-        <summary>Модель v{{ version.number }}</summary>
+        <summary>{{ "XGBoost · Optuna" if version.number == 0 else "Модель v" ~ version.number }}</summary>
         <div class="model-panel">
           <h2>Выбрать модель</h2>
           <form action="/models/select" method="post" class="stack">
@@ -29,8 +29,8 @@
             {% for number in versions %}
               <label class="model-option">
                 <input type="radio" name="number" value="{{ number }}" {% if number == version.number %}checked{% endif %}>
-                <span><strong>v{{ number }} · {{ "Базовая модель" if number == 1 else "Дообученная модель" }}</strong>
-                <small>{{ "XGBoost" if number == 1 else "Случайный лес" }}</small></span>
+                <span><strong>v{{ number }} · {{ "Optuna" if number == 0 else "Базовая модель" if number == 1 else "Дообученная модель" }}</strong>
+                <small>{{ "XGBoost" if number in (0, 1) else "Случайный лес" }}</small></span>
               </label>
             {% endfor %}
             <button class="button primary" type="submit">Применить</button>

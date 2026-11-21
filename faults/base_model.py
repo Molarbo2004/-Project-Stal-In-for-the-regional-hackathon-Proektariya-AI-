@@ -24,11 +24,11 @@ class _BaseModelUnpickler(NumpyUnpickler):
 
 
 class BaseModel:
-    def __init__(self, directory: Path):
-        metadata = load(directory / "model_meta.pkl")
+    def __init__(self, directory: Path, *, optuna: bool = False):
+        metadata = load(directory / ("model_meta_optuna.pkl" if optuna else "model_meta.pkl"))
         self.features = metadata["features"]
         self.classes_ = np.asarray(metadata["classes"])
-        artifact = directory / "best_model_tuned.pkl"
+        artifact = directory / ("best_model_optuna.pkl" if optuna else "best_model_tuned.pkl")
         with artifact.open("rb") as file:
             pipeline = _BaseModelUnpickler(str(artifact), file, ensure_native_byte_order=True).load()
         self.classifier = XGBClassifier(device="cpu", n_jobs=2)
