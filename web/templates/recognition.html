@@ -68,8 +68,10 @@
     </div>
   {% endif %}
   </div>
-  <input type="hidden" id="dashboard-version" value="{{ version.number }}">
+  <input type="hidden" id="dashboard-version" data-model="{{ versions[version.number]|lower }}" value="{{ version.number }}">
   {% if dashboard_batch %}<script type="application/json" id="dashboard-batch">{{ dashboard_batch|tojson }}</script>{% endif %}
+  <script type="application/json" id="dashboard-models">{{ versions|tojson }}</script>
+  <script type="application/json" id="dashboard-cv">{{ cv|tojson }}</script>
   {% include "dashboard.html" %}
 {% endblock %}
 

@@ -19,8 +19,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 COPY app.py Faults.NNA Faults27x7_var ./
 COPY faults/ faults/
 COPY web/ web/
-COPY analysis/benchmark.json analysis/holdout_predictions.csv analysis/
-COPY analysis/tuned_optuna_paired.csv analysis/tuned_optuna_5x2.csv analysis/
+COPY analysis/primary_5x2.csv analysis/
 COPY ["base model/", "base model/"]
 
 USER stal-in

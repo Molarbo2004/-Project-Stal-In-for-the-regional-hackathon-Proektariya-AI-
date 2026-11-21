@@ -29,8 +29,6 @@
             <div class="stack" style="margin-top:10px">
               <label>Faults.NNA<input type="file" id="fNNA" accept=".NNA,.txt,.csv"></label>
               <label>Faults27x7_var<input type="file" id="fVar"></label>
-              <label>analysis/benchmark.json<input type="file" id="fBench" accept=".json"></label>
-              <label>analysis/holdout_predictions.csv<input type="file" id="fHold" accept=".csv"></label>
             </div>
           </details>
         </section>
@@ -40,50 +38,39 @@
 
     <!-- МОДЕЛИ -->
     <section id="s-models">
-      <div class="columns">
-        <section class="card">
-          <div class="card-head"><h2>Сравнение моделей</h2><span class="badge" id="bmTag">benchmark.json</span></div>
-          <p class="muted" id="bmCaption">Out-of-fold macro-F1 на обучающей выборке, среднее по трём семенам.</p>
-          <div id="bmChart"></div>
-          <div class="legend"><span><i style="background:var(--orange)"></i>macro-F1</span><span><i style="background:#8c7b70"></i>accuracy</span><span><i style="background:var(--border)"></i>разброс по семенам 42 / 47 / 53</span></div>
-        </section>
-        <section class="card">
-          <h2>Время обучения</h2>
-          <p class="muted">Суммарные секунды на 5 фолдов × 3 семени, из поля <code>fit_seconds</code>.</p>
-          <div id="bmTime"></div>
-          <div class="table-wrap"><table id="bmTable"></table></div>
-        </section>
-      </div>
-      {% set holdout = comparison.holdout %}
       <section class="card">
-        <h2>Тест Мак-Немара</h2>
-        <p>Базовую XGBoost и XGBoost Optuna обучили заново и проверили на одних и тех же {{ holdout.n|int }} отложенных записях Steel Plates Faults.</p>
-        <dl class="data-list">
-          <dt>Верно предсказала только базовая модель</dt><dd>{{ holdout.tuned_only|int }}</dd>
-          <dt>Верно предсказала только Optuna</dt><dd>{{ holdout.optuna_only|int }}</dd>
-          <dt>Точный двусторонний тест</dt><dd>p = {{ "%.4f"|format(holdout.mcnemar_p) }}</dd>
-        </dl>
-        <p>{{ "Различие статистически значимо" if holdout.mcnemar_p < 0.05 else "Статистически значимого различия не обнаружено" }} при α = 0,05.</p>
+        <h2>Сравнение моделей</h2>
+        <p>Accuracy и macro-F1 рассчитаны для трёх сохранённых моделей на одних и тех же {{ version.evaluation.size }} записях UCI. Эти оценки справочные, поскольку обучающие выборки сохранённых моделей могли включать контрольные записи.</p>
+        <ul class="bars" aria-label="Macro-F1"><li><strong>Macro-F1</strong></li>{% for n, model in active_models.items() %}
+          <li><span>v{{ n }} · {{ versions[n] }}</span><span class="track"><i style="width:{{ 100 * model.evaluation.macro_f1 }}%"></i></span><strong>{{ "%.3f"|format(model.evaluation.macro_f1) }}</strong></li>
+        {% endfor %}</ul>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Модель</th><th>Accuracy</th><th>Macro-F1</th></tr></thead>
+          <tbody>{% for n, model in active_models.items() %}<tr><th>v{{ n }} · {{ versions[n] }}</th><td>{{ "%.3f"|format(model.evaluation.accuracy) }}</td><td>{{ "%.3f"|format(model.evaluation.macro_f1) }}</td></tr>{% endfor %}</tbody>
+        </table></div>
       </section>
       <section class="card">
         <h2>Перекрёстная проверка 5×2 CV</h2>
-        <p>Обучающую выборку пять раз делили пополам с сохранением долей классов. На каждом разбиении половины менялись ролями. Обе модели обучались и проверялись на одинаковых записях.</p>
-        <dl class="data-list">
-          <dt>Средняя точность базовой XGBoost</dt><dd>{{ "%.2f"|format(100 * comparison.tuned) }} %</dd>
-          <dt>Средняя точность XGBoost Optuna</dt><dd>{{ "%.2f"|format(100 * comparison.optuna) }} %</dd>
-        </dl>
-        {% if comparison.statistic is not none %}
-          <p>Парный t-тест Диттериха (5 степеней свободы) · t = {{ "%.3f"|format(comparison.statistic) }} · p = {{ "%.4f"|format(comparison.p) }}.
-          {{ "Различие статистически значимо" if comparison.p < 0.05 else "Статистически значимого различия не обнаружено" }} при α = 0,05.</p>
-        {% else %}
-          <p>Внутри пар нет вариации разностей, поэтому t-статистика не определена.</p>
-        {% endif %}
-        <details><summary class="button">Точность на каждом разбиении</summary>
+        <p>Для каждой конфигурации модель обучили заново на десяти общих разбиениях. В таблице приведены средние метрики и суммарное время обучения на CPU.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Модель</th><th>Accuracy</th><th>Macro-F1</th><th>Обучение, с</th></tr></thead>
+          <tbody>{% for n, name in versions.items() %}<tr><th>v{{ n }} · {{ name }}</th><td>{{ "%.3f"|format(cv[name].accuracy) }}</td><td>{{ "%.3f"|format(cv[name].macro_f1) }}</td><td>{{ "%.1f"|format(cv[name].fit_seconds) }}</td></tr>{% endfor %}</tbody>
+        </table></div>
+        <details><summary class="button">Точность по разбиениям и парный t-тест Диттериха</summary>
           <div class="table-wrap"><table>
-            <thead><tr><th>Повтор</th><th>Половина</th><th>Базовая XGBoost</th><th>Optuna</th><th>Разница, п. п.</th></tr></thead>
-            <tbody>{% for row in comparison.folds %}<tr><td>{{ row.repeat }}</td><td>{{ row.fold }}</td><td>{{ "%.2f"|format(100 * row.tuned) }} %</td><td>{{ "%.2f"|format(100 * row.optuna) }} %</td><td>{{ "%+.2f"|format(100 * row.delta) }}</td></tr>{% endfor %}</tbody>
+            <thead><tr><th>Повтор</th><th>Половина</th>{% for name in versions.values() %}<th>{{ name }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for row in folds %}<tr><td>{{ row.repeat }}</td><td>{{ row.fold }}</td>{% for name in versions.values() %}<td>{{ "%.3f"|format(row[name]) }}</td>{% endfor %}</tr>{% endfor %}</tbody>
           </table></div>
+          {% for a, b, statistic, p in cv_pairs %}<p>{{ a }} / {{ b }} · {% if statistic is not none %}t = {{ "%.3f"|format(statistic) }}, p = {{ "%.4f"|format(p) }}{% else %}нулевая дисперсия разностей{% endif %}</p>{% endfor %}
         </details>
+      </section>
+      <section class="card">
+        <h2>Тест Мак-Немара</h2>
+        <p>Сравнение прогнозов сохранённых моделей на контрольной выборке UCI. Для каждой пары показаны односторонние выигрыши и точное двустороннее p-значение.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Пара моделей</th><th>Верно только у первой</th><th>Верно только у второй</th><th>p</th></tr></thead>
+          <tbody>{% for a, b, wins, losses, p in pairs %}<tr><th>{{ a }} / {{ b }}</th><td>{{ wins }}</td><td>{{ losses }}</td><td>{{ "%.4f"|format(p) }}</td></tr>{% endfor %}</tbody>
+        </table></div>
       </section>
     </section>
 
@@ -93,12 +80,7 @@
         <div class="card-head">
           <h2>Качество на holdout</h2>
           <div class="row">
-            <label for="qModel" class="visually-hidden">Модель</label>
-            <select id="qModel" style="width:auto;min-width:190px">
-              <option value="xgb">XGBoost</option><option value="hist">Gradient boosting (hist)</option>
-              <option value="smote">XGBoost + SMOTE</option><option value="rf">Random Forest</option>
-            </select>
-            <span class="badge" id="qTag">holdout_predictions.csv</span>
+            <span class="badge">v{{ version.number }} · {{ versions[version.number] }}</span>
           </div>
         </div>
         <p class="muted">Метрики считаются в браузере из ваших реальных прогнозов на фиксированной тестовой выборке. Строка <code>source_line</code> связывает прогноз с записью <code>Faults.NNA</code>.</p>
@@ -126,7 +108,7 @@
         </section>
         <section class="card">
           <h2>Спорные записи</h2>
-          <p class="muted">Строки, где ошиблись все три модели (<code>top3_errors = 3</code>) — кандидаты на пересмотр разметки.</p>
+          <p class="muted">Строки, где ошиблись все три модели — кандидаты на пересмотр разметки.</p>
           <div id="disputedKpi"></div>
           <div class="table-wrap"><table id="disputedTable"></table></div>
         </section>

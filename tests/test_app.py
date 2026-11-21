@@ -52,30 +52,35 @@ def test_operator_flow(monkeypatch, tmp_path):
             assert "сохранена" in saved.text
             trained = post("/review/retrain", saved, batch=saved.context["batch_id"])
             assert f"Версия v{number} сохранена" in trained.text
-            assert trained.context["version"].number == number - 1
+            assert trained.context["version"].number == 1
             quality = client.get("/quality")
             selected = post("/models/select", quality, number=number, destination="quality")
-            assert selected.context["version"].number == number
-            assert f"v{number}" in selected.text
+            assert selected.status_code == 404
             review = client.get("/review")
-        assert client.get("/").context["version"].number == 3
+        assert client.get("/").context["version"].number == 1
         assert post("/models/select", review, number=1, destination="recognition").context["version"].number == 1
         client.cookies.clear()
         home = client.get("/")
         assert home.context["version"].number == 1
-        assert [m["number"] for m in client.get("/api/models").json()] == [1, 0, 2, 3]
+        assert [m["number"] for m in client.get("/api/models").json()] == [0, 1, 1.1]
         assert client.post("/batches/demo", data={"csrf": "incorrect"}).status_code == 403
         assert client.get("/openapi.json").json()["paths"]["/api/predict"]
 
         records = load_uci(APP.parent)[0].iloc[:2].to_json(orient="records")
         files = {"file": ("small.json", records, "application/json")}
-        optuna = post("/models/select", home, number=0, destination="quality")
-        assert optuna.context["version"].number == 0 and "Optuna" in optuna.text
-        optuna_result = client.post("/api/predict?version=0", files=files).json()
-        assert optuna_result["version"] == 0 and len(optuna_result["predictions"]) == 2
-        forecast = client.post("/api/predict?version=3", files=files).json()
-        assert forecast["version"] == 3 and len(forecast["predictions"]) == 2
-        assert forecast["monitoring"] == "insufficient_data"
+        holdout = client.get("/dashboard/data/holdout.json").json()
+        assert len(holdout) == 389
+        for number, name in [(0, "Baseline"), (1, "GridSearch"), (1.1, "Optuna")]:
+            quality = post("/models/select", home, number=number, destination="quality")
+            assert quality.context["version"].number == number
+            forecast = client.post(f"/api/predict?version={number}", files=files).json()
+            assert forecast["version"] == number and len(forecast["predictions"]) == 2
+            assert forecast["monitoring"] == "insufficient_data"
+            key = name.lower()
+            correct = sum(row[key] == row["truth"] for row in holdout)
+            assert correct / len(holdout) == quality.context["version"].evaluation.accuracy
+            assert all(0 <= row[key + "_margin"] <= row[key + "_score"] <= 1 for row in holdout)
+        assert client.post("/api/predict?version=3", files=files).status_code == 404
         assert client.get("/").context["batch"] is None
         uploaded = client.post("/batches/upload", data={"csrf": home.context["csrf"]}, files=files)
         assert uploaded.context["batch"].name == "small.json"

@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import numpy as np
-from joblib import load
 from joblib.numpy_pickle import NumpyUnpickler
 from xgboost import XGBClassifier
 
@@ -23,14 +22,16 @@ class _BaseModelUnpickler(NumpyUnpickler):
         return super().find_class(module, name)
 
 
+MODELS = {0: "Baseline", 1: "GridSearch", 1.1: "Optuna"}
+
+
 class BaseModel:
-    def __init__(self, directory: Path, *, optuna: bool = False):
-        metadata = load(directory / ("model_meta_optuna.pkl" if optuna else "model_meta.pkl"))
-        self.features = metadata["features"]
-        self.classes_ = np.asarray(metadata["classes"])
-        artifact = directory / ("best_model_optuna.pkl" if optuna else "best_model_tuned.pkl")
+    def __init__(self, directory: Path, name: str, classes):
+        self.classes_ = np.asarray(classes)
+        artifact = directory / f"model_{name.lower()}.pkl"
         with artifact.open("rb") as file:
             pipeline = _BaseModelUnpickler(str(artifact), file, ensure_native_byte_order=True).load()
+        self.features = list(pipeline.feature_names_in_)
         self.classifier = XGBClassifier(device="cpu", n_jobs=2)
         self.classifier.load_model(pipeline.named_steps["clf"].get_booster().model_bytes)
 

@@ -7,7 +7,9 @@ const COLOR={Bumps:"#b8860b",Dirtiness:"#5c8a3c",K_Scatch:"#c0392b",Other_Faults
 const BRIGHTNESS=["Minimum_of_Luminosity","Maximum_of_Luminosity","Sum_of_Luminosity","Luminosity_Index"];
 const MIN_BATCH=30, SIZES=[30,60,100,150,200], DRAWS=96, QLEVEL=.95;
 const SEEDS=[42,47,53], BUDGETS=[0,10,20,40,80];
-const MODEL_NAMES={xgb:"XGBoost",hist:"Gradient boosting (hist)",smote:"XGBoost + SMOTE",rf:"Random Forest"};
+const MODEL_NAMES = Object.fromEntries(Object.entries(JSON.parse(document.getElementById("dashboard-models").textContent))
+  .map(([version, name]) => [name.toLowerCase(), "v" + version + " · " + name]));
+const CV = JSON.parse(document.getElementById("dashboard-cv").textContent);
 const STATUS={shift:"Есть сдвиг",stable:"Без сдвига",insufficient_data:"Малая партия"};
 
 /* ================= УТИЛИТЫ ================= */
@@ -30,33 +32,18 @@ function download(name,text,type){const blob=new Blob([text],{type:type||"text/p
   const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=name;
   document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1200)}
 const csvBom=s=>"\ufeff"+s;
-function parseCsv(text){
-  const rows=[];let row=[],cell="",q=false;
-  text=text.replace(/^\ufeff/,"");
-  for(let i=0;i<text.length;i++){const c=text[i];
-    if(q){if(c==='"'){if(text[i+1]==='"'){cell+='"';i++}else q=false}else cell+=c}
-    else if(c==='"')q=true;
-    else if(c===","||c===";"){row.push(cell);cell=""}
-    else if(c==="\n"){row.push(cell);rows.push(row);row=[];cell=""}
-    else if(c!=="\r")cell+=c}
-  if(cell.length||row.length){row.push(cell);rows.push(row)}
-  return rows.filter(r=>r.length>1||r[0]!=="")}
-function csvObjects(text){const r=parseCsv(text);if(!r.length)return[];
-  const head=r[0].map(h=>h.trim());
-  return r.slice(1).map(cells=>Object.fromEntries(head.map((h,i)=>[h,(cells[i]??"").trim()])))}
-
 /* ================= СОСТОЯНИЕ ================= */
 const S={
   names:[],features:[],targets:[],rows:[],labels:[],
-  split:null,baseline:null,benchmark:null,holdout:[],
-  batches:[],batchId:null,drift:null,qModel:"xgb",queue:[],entry:null,
+  split:null,baseline:null,holdout:[],
+  batches:[],batchId:null,drift:null,qModel:document.getElementById("dashboard-version").dataset.model,queue:[],entry:null,
   labelsStore:{},demo:null,
-  sources:{nna:"idle",var:"idle",bench:"idle",hold:"idle"},calibrated:false
+  sources:{nna:"idle",var:"idle",hold:"idle"},calibrated:false
 };
 const LS="steel-qc-dashboard";
-function persist(){try{localStorage.setItem(LS,JSON.stringify({labelsStore:S.labelsStore,qModel:S.qModel}))}catch(e){}}
+function persist(){try{localStorage.setItem(LS,JSON.stringify({labelsStore:S.labelsStore}))}catch(e){}}
 function restore(){try{const s=JSON.parse(localStorage.getItem(LS)||"{}");
-  if(s.labelsStore)S.labelsStore=s.labelsStore;if(s.qModel)S.qModel=s.qModel}catch(e){}}
+  if(s.labelsStore)S.labelsStore=s.labelsStore}catch(e){}}
 
 /* ================= ЗАГРУЗКА ДАННЫХ ================= */
 async function fetchText(path){const r=await fetch(RAW+path,{cache:"no-store"});
@@ -65,8 +52,7 @@ function setSrc(key,state,note){S.sources[key]=state;renderSources(note)}
 function renderSources(){
   const defs=[["var","Faults27x7_var","имена 27 признаков и 7 категорий"],
     ["nna","Faults.NNA","1941 запись · 34 столбца"],
-    ["bench","analysis/benchmark.json","сравнение 6 моделей × 3 семени"],
-    ["hold","analysis/holdout_predictions.csv","389 прогнозов четырёх моделей"]];
+    ["hold","Прогнозы моделей","три основные модели на контрольной выборке"]];
   $("#srcList").innerHTML=defs.map(([k,name,desc])=>{
     const st=S.sources[k];const cls=st==="ok"?"ok":st==="bad"?"bad":st==="load"?"load":"";
     const label=st==="ok"?"загружен":st==="bad"?"недоступен":st==="load"?"загрузка…":"ожидание";
@@ -235,7 +221,7 @@ function holdoutBatch(model){
     const line=Number(h.source_line)-1;
     const features=S.rows[line]||null;
     if(!features)return null;
-    return{position:line,features,pred:h[model],score:null,
+    return{position:line,features,pred:h[model],score:Number(h[model+"_score"]),
       margin:Number(h[model+"_margin"]),truth:h.truth,source_line:Number(h.source_line)}}).filter(Boolean)}
 
 function addBatch(id,label,rows,note){
@@ -267,14 +253,12 @@ function bars(el,items,colorFn){
 
 function renderKpis(){
   const b=currentBatch(),d=S.drift;
-  const bm=S.benchmark;
-  const winner=bm?bm.winner:null;
-  const wsum=bm&&winner?bm.summary[winner]:null;
+  const [winner, best] = Object.entries(CV).sort((a, b) => b[1].macro_f1 - a[1].macro_f1)[0];
   const q=qualityData();
   const items=[
     ["Записей в датасете",S.rows.length||"—","UCI Steel Plates Faults"],
-    ["Holdout",bm?bm.holdout_count:(S.holdout.length||"—"),"фиксированная тестовая выборка"],
-    ["Лучшая модель OOF",winner?winner:"—",wsum?"macro-F1 "+f3(wsum.macro_f1):"нет benchmark.json"],
+    ["Holdout",S.holdout.length||"—","фиксированная тестовая выборка"],
+    ["Лучшая модель по 5×2 CV",MODEL_NAMES[winner.toLowerCase()],"macro-F1 "+f3(best.macro_f1)],
     ["Партия",b?b.rows.length:"—",b?b.label:"не выбрана"],
     ["Мониторинг",d?STATUS[d.status]:"—",d&&d.score!=null?"KS "+f3(d.score)+" / порог "+f3(d.threshold):"нужно ≥ 30 записей"],
     ["Accuracy на holdout",q?pc(q.accuracy):"—",q?MODEL_NAMES[S.qModel]:""],
@@ -283,39 +267,6 @@ function renderKpis(){
   ];
   $("#kpis").innerHTML=items.map(([l,v,s])=>
     '<div class="card metric"><span>'+esc(l)+'</span><strong>'+esc(v)+'</strong><em>'+esc(s)+'</em></div>').join("")}
-
-function renderBenchmark(){
-  const bm=S.benchmark;
-  if(!bm){$("#bmChart").innerHTML='<div class="empty">Загрузите analysis/benchmark.json</div>';
-    $("#bmTime").innerHTML="";$("#bmTable").innerHTML="";return}
-  $("#bmCaption").textContent="Out-of-fold macro-F1 на "+bm.train_count+" обучающих записях, среднее по семенам 42 / 47 / 53. Победитель: "+bm.winner+". sklearn "+bm.versions.sklearn+", xgboost "+bm.versions.xgboost+".";
-  const entries=Object.entries(bm.summary).sort((a,b)=>b[1].macro_f1-a[1].macro_f1);
-  const reps=bm.repetitions||[];
-  const W=560,rh=42,H=entries.length*rh+16;
-  let s='<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Сравнение моделей">';
-  entries.forEach(([name,v],i)=>{
-    const y=i*rh+10,rs=reps.filter(r=>r.model===name).map(r=>r.macro_f1);
-    const lo=rs.length?Math.min(...rs):v.macro_f1,hi=rs.length?Math.max(...rs):v.macro_f1;
-    const x0=190,bw=W-x0-56;
-    const isWin=name===bm.winner;
-    s+='<text x="0" y="'+(y+13)+'" font-size="11.5" fill="'+(isWin?"var(--orange-ink)":"var(--ink)")+'" font-weight="'+(isWin?700:500)+'">'+esc(name)+'</text>';
-    s+='<rect x="'+x0+'" y="'+y+'" width="'+bw+'" height="12" rx="6" fill="var(--soft)"/>';
-    s+='<rect x="'+x0+'" y="'+y+'" width="'+(v.macro_f1*bw)+'" height="12" rx="6" fill="var(--orange)"><animate attributeName="width" from="0" to="'+(v.macro_f1*bw)+'" dur="0.6s" fill="freeze"/></rect>';
-    s+='<rect x="'+x0+'" y="'+(y+16)+'" width="'+bw+'" height="7" rx="3.5" fill="var(--soft)"/>';
-    s+='<rect x="'+x0+'" y="'+(y+16)+'" width="'+(v.accuracy*bw)+'" height="7" rx="3.5" fill="#8c7b70"/>';
-    if(rs.length>1){const a=x0+lo*bw,b2=x0+hi*bw;
-      s+='<line x1="'+a+'" y1="'+(y-4)+'" x2="'+b2+'" y2="'+(y-4)+'" stroke="var(--border)" stroke-width="3" stroke-linecap="round"/>';
-      s+='<circle cx="'+a+'" cy="'+(y-4)+'" r="2" fill="#8c7b70"/><circle cx="'+b2+'" cy="'+(y-4)+'" r="2" fill="#8c7b70"/>'}
-    s+='<text x="'+(W-4)+'" y="'+(y+11)+'" font-size="11" text-anchor="end" fill="var(--ink)" font-weight="650">'+f3(v.macro_f1)+'</text>';
-    s+='<text x="'+(W-4)+'" y="'+(y+23)+'" font-size="9.5" text-anchor="end" fill="var(--muted)">'+f3(v.accuracy)+'</text>'});
-  $("#bmChart").innerHTML=s+"</svg>";
-  const times={};(bm.folds||[]).forEach(f=>{times[f.model]=(times[f.model]||0)+f.fit_seconds});
-  const tEntries=Object.entries(times).sort((a,b)=>a[1]-b[1]);
-  if(tEntries.length){const tmax=Math.max(...tEntries.map(t=>t[1]));
-    $("#bmTime").innerHTML='<ul class="bars">'+tEntries.map(([n,v])=>
-      '<li><span>'+esc(n)+'</span><span class="track"><i style="width:'+(v/tmax*100)+'%"></i></span><strong>'+v.toFixed(1)+'</strong></li>').join("")+'</ul>'}
-  $("#bmTable").innerHTML='<thead><tr><th>Модель</th><th class="number">macro-F1</th><th class="number">accuracy</th><th class="number">сек.</th></tr></thead><tbody>'+
-    entries.map(([n,v])=>'<tr><th scope="row">'+esc(n)+(n===bm.winner?' <span class="badge">winner</span>':'')+'</th><td class="number">'+f3(v.macro_f1)+'</td><td class="number">'+f3(v.accuracy)+'</td><td class="number">'+(times[n]?times[n].toFixed(1):"—")+'</td></tr>').join("")+'</tbody>'}
 
 function qualityData(){
   if(!S.holdout.length)return null;
@@ -359,7 +310,7 @@ function renderQualityRadar(metrics){
 function renderQuality(){
   const q=qualityData();
   renderQualityRadar(q?.per);
-  if(!q){$("#qKpis").innerHTML="";$("#cmChart").innerHTML='<div class="empty">Загрузите analysis/holdout_predictions.csv</div>';
+  if(!q){$("#qKpis").innerHTML="";$("#cmChart").innerHTML='<div class="empty">Контрольные прогнозы недоступны</div>';
     $("#qTable").innerHTML="";$("#mgChart").innerHTML="";$("#disputedTable").innerHTML="";$("#disputedKpi").innerHTML="";return}
   const worst=q.per.slice().sort((a,b)=>a.f1-b.f1)[0];
   $("#qKpis").innerHTML=[
@@ -407,16 +358,16 @@ function renderMargin(){
   $("#mgLegend").innerHTML='<span><i style="background:#8c7b70"></i>все записи</span><span><i style="background:#c0392b"></i>ошибочные прогнозы</span><span><i style="background:var(--orange)"></i>средний margin</span>'}
 
 function renderDisputed(){
-  const all=S.holdout.filter(h=>Number(h.top3_errors)===3);
-  const same=all.filter(h=>h.xgb===h.hist&&h.hist===h.smote);
+  const all=S.holdout.filter(h=>Object.keys(MODEL_NAMES).every(key=>h[key]!==h.truth));
+  const same=all.filter(h=>new Set(Object.keys(MODEL_NAMES).map(key=>h[key])).size===1);
   $("#disputedKpi").innerHTML='<div class="metrics"><div class="card metric"><span>Ошиблись все три</span><strong>'+all.length+'</strong><em>из '+S.holdout.length+'</em></div>'+
     '<div class="card metric"><span>Совпал неверный ответ</span><strong>'+same.length+'</strong><em>общая причина, не случайность</em></div></div>';
   const rows=all.slice(0,12);
-  $("#disputedTable").innerHTML=rows.length?'<thead><tr><th class="number">Строка</th><th>Истина</th><th>XGBoost</th><th>Hist</th><th>SMOTE</th><th class="number">margin</th></tr></thead><tbody>'+
+  $("#disputedTable").innerHTML=rows.length?'<thead><tr><th class="number">Строка</th><th>Истина</th>'+Object.values(MODEL_NAMES).map(name=>'<th>'+esc(name)+'</th>').join("")+'<th class="number">margin</th></tr></thead><tbody>'+
     rows.map(h=>'<tr><td class="number">'+h.source_line+'</td>'+
       '<td><span class="cls"><i class="sw" style="background:'+COLOR[h.truth]+'"></i>'+esc(RU[h.truth]||h.truth)+'</span></td>'+
-      '<td>'+esc(RU[h.xgb]||h.xgb)+'</td><td>'+esc(RU[h.hist]||h.hist)+'</td><td>'+esc(RU[h.smote]||h.smote)+'</td>'+
-      '<td class="number">'+f3(Number(h.xgb_margin))+'</td></tr>').join("")+'</tbody>':'<tbody><tr><td class="empty">Спорных записей нет</td></tr></tbody>'}
+      Object.keys(MODEL_NAMES).map(key=>'<td>'+esc(RU[h[key]]||h[key])+'</td>').join("")+
+      '<td class="number">'+f3(Number(h[S.qModel+"_margin"]))+'</td></tr>').join("")+'</tbody>':'<tbody><tr><td class="empty">Спорных записей нет</td></tr></tbody>'}
 
 function renderDrift(){
   const d=S.drift,b=currentBatch();
@@ -528,27 +479,25 @@ function renderDemo(){
      ["Пар прогонов",d.trials,"обычная + сдвинутая"]]
     .map(([l,v,s])=>'<div class="card metric"><span>'+esc(l)+'</span><strong>'+esc(v)+'</strong><em>'+esc(s)+'</em></div>').join("")+'</div>'+
     '<div class="status '+(d.detection_rate>=.8?"success":"warning")+'" style="margin-top:10px"><strong>Сдвиг яркости: +1.4 · max(IQR, σ/2)</strong><p>Изменены четыре признака: '+BRIGHTNESS.join(", ")+'. Детектор ловит '+Math.round(d.detection_rate*d.trials)+' из '+d.trials+' сдвигов при '+Math.round(d.false_alert_rate*d.trials)+' ложных срабатываниях.</p></div>'}
-function renderAll(){renderKpis();renderBenchmark();renderQuality();renderDrift();renderQueue()}
+function renderAll(){renderKpis();renderQuality();renderDrift();renderQueue()}
 
 /* ================= API ================= */
 /* ================= ЗАГРУЗКА РЕПОЗИТОРИЯ ================= */
 async function loadAll(){
-  S.sources={nna:"load",var:"load",bench:"load",hold:"load"};renderSources();
+  S.sources={nna:"load",var:"load",hold:"load"};renderSources();
   try{const t=await fetchText("Faults27x7_var");
     S.names=t.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);setSrc("var","ok")}
   catch(e){setSrc("var","bad");toast("Faults27x7_var недоступен — загрузите вручную","err")}
   try{const t=await fetchText("Faults.NNA");
     if(S.names.length){S.matrix=parseNNA(t,S.names);buildDataset();setSrc("nna","ok")}else setSrc("nna","bad")}
   catch(e){setSrc("nna","bad")}
-  try{S.benchmark=JSON.parse(await fetchText("analysis/benchmark.json"));setSrc("bench","ok")}
-  catch(e){setSrc("bench","bad")}
-  try{S.holdout=csvObjects(await fetchText("analysis/holdout_predictions.csv"));setSrc("hold","ok")}
+  try{S.holdout=JSON.parse(await fetchText("holdout.json"));setSrc("hold","ok")}
   catch(e){setSrc("hold","bad")}
   renderAll();
   if(S.rows.length){
     if(S.holdout.length){const rows=holdoutBatch(S.qModel);
       addBatch("holdout","Holdout · "+MODEL_NAMES[S.qModel],rows,
-        "Реальные прогнозы из analysis/holdout_predictions.csv, признаки связаны по source_line.")}
+        "Прогнозы выбранной модели, признаки связаны по source_line.")}
     const payload = document.getElementById("dashboard-batch");
     if (payload) {
       const batch = JSON.parse(payload.textContent);
@@ -562,28 +511,31 @@ async function loadAll(){
   else toast("Датасет не загружен. Откройте файлы вручную в блоке «Источники данных».","err");
   renderAll()}
 
-function rebuildHoldout(){
-  if(!S.holdout.length||!S.rows.length)return;
-  const b=currentBatch();
-  if(b&&b.id==="holdout"){addBatch("holdout","Holdout · "+MODEL_NAMES[S.qModel],holdoutBatch(S.qModel),
-    "Реальные прогнозы из analysis/holdout_predictions.csv, признаки связаны по source_line.")}}
-
 /* ================= СОБЫТИЯ ================= */
 $("#reload").onclick=loadAll;
-$("#qModel").onchange=e=>{S.qModel=e.target.value;persist();renderQuality();rebuildHoldout();renderKpis()};
 $("#batchSel").onchange=e=>{S.batchId=e.target.value;S.entry=null;assessCurrent()};
 $("#qLimit").onchange=()=>{buildQueue();renderQueue()};
 $("#runDemo").onclick=runDriftDemo;
-$("#useHoldout").onclick=()=>{if(!S.holdout.length){toast("holdout_predictions.csv не загружен","err");return}
+$("#useHoldout").onclick=()=>{if(!S.holdout.length){toast("Контрольные прогнозы не загружены","err");return}
   addBatch("holdout","Holdout · "+MODEL_NAMES[S.qModel],holdoutBatch(S.qModel),
-    "Реальные прогнозы из analysis/holdout_predictions.csv, признаки связаны по source_line.");
+    "Прогнозы выбранной модели, признаки связаны по source_line.");
   toast("Партия holdout загружена","ok")};
-$("#useShift").onclick=()=>{
+$("#useShift").onclick=async ()=>{
   if(!S.baseline){toast("Дождитесь калибровки порогов","err");return}
   const base=holdoutBatch(S.qModel).slice(0,128);
   if(base.length<MIN_BATCH){toast("Недостаточно записей для демо-сдвига","err");return}
-  addBatch("shift","Сдвиг яркости · 128",shiftBrightness(base),
-    "Признаки яркости сдвинуты по формуле simulate_brightness_shift. Прогнозы перенесены из исходной партии — сдвиг меняет только признаки, и это видно монитору, но не модели.");
+  const rows=shiftBrightness(base);
+  const form=new FormData();
+  form.append("file",new Blob([JSON.stringify(rows.map(row=>row.features))],{type:"application/json"}),"shift.json");
+  try {
+    const response=await fetch("/api/predict?version="+$("#dashboard-version").value,{method:"POST",body:form});
+    if(!response.ok)throw new Error();
+    const {predictions}=await response.json();
+    rows.forEach((row,i)=>Object.assign(row,{pred:predictions[i].class,score:predictions[i].score,margin:predictions[i].margin}));
+  } catch {
+    toast("Не удалось рассчитать прогнозы для сдвинутой партии","err");return;
+  }
+  addBatch("shift","Сдвиг яркости · "+MODEL_NAMES[S.qModel],rows,"Прогнозы рассчитаны после изменения яркости.");
   toast("Демо-партия со сдвигом яркости создана","ok")};
 $("#clearLabels").onclick=()=>{const b=currentBatch();if(!b)return;
   const old=S.labelsStore[b.id];delete S.labelsStore[b.id];persist();buildQueue();renderQueue();renderEntry();renderKpis();
@@ -594,9 +546,6 @@ $("#fVar").onchange=async e=>{const t=await e.target.files[0].text();
 $("#fNNA").onchange=async e=>{const t=await e.target.files[0].text();
   if(!S.names.length){toast("Сначала загрузите Faults27x7_var","err");return}
   S.matrix=parseNNA(t,S.names);buildDataset();setSrc("nna","ok");renderAll();await calibrate();renderAll()};
-$("#fBench").onchange=async e=>{S.benchmark=JSON.parse(await e.target.files[0].text());setSrc("bench","ok");renderBenchmark();renderKpis()};
-$("#fHold").onchange=async e=>{S.holdout=csvObjects(await e.target.files[0].text());setSrc("hold","ok");
-  renderQuality();rebuildHoldout();renderKpis()};
 $("#expPred").onclick=()=>{const b=currentBatch();if(!b){toast("Партия не выбрана","err");return}
   const head="Запись,Прогноз,Вероятность,Разрыв топ-2";
   const body=b.rows.map(r=>[r.source_line,r.pred??"",r.score!=null?f3(r.score):"",f3(r.margin??0)].join(",")).join("\n");
@@ -614,7 +563,7 @@ $("#expKs").onclick=()=>{if(!S.drift||!S.drift.scores||!S.drift.scores.length){t
 $("#expJson").onclick=()=>{const q=qualityData();
   download("stal-in-dashboard.json",JSON.stringify({
     generated:new Date().toISOString(),dataset:S.rows.length,split:S.split?{train:S.split.train.length,validation:S.split.validation.length,pool:S.split.pool.length,test:S.split.test.length}:null,
-    benchmark:S.benchmark?{winner:S.benchmark.winner,summary:S.benchmark.summary}:null,
+    cross_validation:CV,
     holdout:{model:S.qModel,accuracy:q?q.accuracy:null,macro_f1:q?q.macro_f1:null,per_class:q?q.per:null},
     drift:S.drift?{status:S.drift.status,score:S.drift.score,threshold:S.drift.threshold,sample_size:S.drift.sample_size}:null,
     drift_demo:S.demo,labels_confirmed:Object.values(S.labelsStore).reduce((s,o)=>s+Object.keys(o).length,0),
@@ -630,6 +579,5 @@ window.addEventListener("scroll",()=>{
 
 /* ================= СТАРТ ================= */
 restore();
-$("#qModel").value=S.qModel;
 renderSources();renderAll();
 loadAll();

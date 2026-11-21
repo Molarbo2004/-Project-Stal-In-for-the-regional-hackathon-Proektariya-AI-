@@ -5,14 +5,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
+import pandas as pd
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from faults.base_model import BaseModel
-from faults.comparison import load_comparison
+from faults.base_model import BaseModel, MODELS
+from faults.comparison import compare_predictions, load_comparison
 from faults.data import BatchInputError, import_batch, load_uci
 from faults.drift import MIN_BATCH_SIZE, assess_drift, fit_drift_baseline
 from faults.model import evaluate, predict, split_dataset
@@ -35,22 +36,28 @@ class StalIn:
         features, self.labels = load_uci(ROOT)
         self.split = split_dataset(features, self.labels)
         self.baseline = fit_drift_baseline(self.split.train[0], self.split.validation[0])
-        model = BaseModel(ROOT / "base model")
-        self.initial = ModelVersion(1, model, evaluate(model, *self.split.test), 0)
-        optuna = BaseModel(ROOT / "base model", optuna=True)
-        self.optuna = ModelVersion(0, optuna, evaluate(optuna, *self.split.test), 0)
+        self.versions = {}
+        test, truth = self.split.test
+        results = pd.DataFrame({"source_line": test.index + 1, "truth": truth}, index=test.index)
+        classes = (ROOT / "Faults27x7_var").read_text().split()[27:]
+        for number, name in MODELS.items():
+            model = BaseModel(ROOT / "base model", name, classes)
+            self.versions[number] = ModelVersion(number, model, evaluate(model, test, truth), 0)
+            predictions = predict(model, test)
+            key = name.lower()
+            results[key] = predictions["class"]
+            results[key + "_margin"] = predictions["margin"]
+            results[key + "_score"] = predictions["score"]
+        self.holdout = results.to_dict("records")
+        self.pairs = compare_predictions(results, truth, MODELS.values())
+        self.cv, self.folds, self.cv_pairs = load_comparison(ROOT / "analysis" / "primary_5x2.csv", MODELS.values())
         self.workspace = Workspace(workspace_path)
-        self.comparison = load_comparison(ROOT / "analysis")
 
-    def model_version(self, number: int) -> ModelVersion:
-        if number == 0:
-            return self.optuna
-        if number == 1:
-            return self.initial
-        try:
-            return self.workspace.load_version(number)
-        except ValueError as error:
-            raise HTTPException(404, str(error)) from error
+    def model_version(self, number: float) -> ModelVersion:
+        if number not in self.versions:
+            raise HTTPException(404, "Версия модели отсутствует.")
+        return self.versions[number]
+
 
 def service(request: Request) -> StalIn:
     return request.app.state.stal_in
@@ -59,7 +66,7 @@ def service(request: Request) -> StalIn:
 def chosen_model(request: Request) -> ModelVersion:
     qc = service(request)
     number = request.session.get("model", 1)
-    return qc.model_version(number)
+    return qc.model_version(number if number in MODELS else 1)
 
 
 def check_csrf(request: Request, csrf: Annotated[str, Form()]):
@@ -73,10 +80,10 @@ def render(request: Request, page: str, *, status_code=200, version=None, **cont
     if "csrf" not in request.session:
         request.session["csrf"] = secrets.token_urlsafe(32)
     if page == "recognition":
-        context["comparison"] = qc.comparison
+        context.update(pairs=qc.pairs, cv=qc.cv, folds=qc.folds, cv_pairs=qc.cv_pairs, active_models=qc.versions)
     context.update(page=page, pages=PAGES, csrf=request.session["csrf"],
                    version=version or chosen_model(request),
-                   versions=[1, 0, *qc.workspace.version_numbers()],
+                   versions=MODELS,
                    notice=request.session.pop("notice", None))
     return TEMPLATES.TemplateResponse(
         request, f"{page}.html", context=context, status_code=status_code,
@@ -232,11 +239,11 @@ def retrain(request: Request, batch: Annotated[str, Form()]):
 
 
 @site.post("/models/select", dependencies=[Depends(check_csrf)])
-def select_model(request: Request, number: Annotated[int, Form(ge=0)], destination: Annotated[str, Form()]):
+def select_model(request: Request, number: Annotated[float, Form(ge=0)], destination: Annotated[str, Form()]):
     qc = service(request)
-    if number not in (0, 1) and number not in qc.workspace.version_numbers():
+    if number not in MODELS:
         raise HTTPException(404, "Версия модели отсутствует.")
-    request.session["model"] = number
+    request.session["model"] = qc.model_version(number).number
     page = destination if destination in PAGES else "recognition"
     return redirect(request, page)
 
@@ -275,8 +282,10 @@ def csv_response(csv: str, filename: str):
 
 
 @site.get("/dashboard/data/{name:path}")
-def dashboard_data(name: str):
-    if name not in {"Faults27x7_var", "Faults.NNA", "analysis/benchmark.json", "analysis/holdout_predictions.csv"}:
+def dashboard_data(name: str, request: Request):
+    if name == "holdout.json":
+        return service(request).holdout
+    if name not in {"Faults27x7_var", "Faults.NNA"}:
         raise HTTPException(404)
     return FileResponse(ROOT / name)
 
@@ -288,12 +297,11 @@ def health():
 
 @api.get("/api/models", tags=["Модели"])
 def models(request: Request):
-    return [{"number": n, "base": n in (0, 1), "name": "XGBoost · Optuna" if n == 0 else f"v{n}"}
-            for n in [1, 0, *service(request).workspace.version_numbers()]]
+    return [{"number": n, "base": True, "name": name} for n, name in MODELS.items()]
 
 
 @api.post("/api/predict", tags=["Распознавание"])
-def predict_batch(request: Request, file: UploadFile, version: Annotated[int, Query(ge=0)] = 1,
+def predict_batch(request: Request, file: UploadFile, version: Annotated[float, Query(ge=0)] = 1,
                   include_features: bool = False):
     """Классифицирует CSV, JSON или BSON без записи партии в рабочее пространство."""
     qc = service(request)

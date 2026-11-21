@@ -16,9 +16,6 @@
 
 !web/static/dashboard.html
 !analysis/
-!analysis/benchmark.json
-!analysis/holdout_predictions.csv
-!analysis/tuned_optuna_paired.csv
-!analysis/tuned_optuna_5x2.csv
+!analysis/primary_5x2.csv
 !web/static/favicon.png
 !web/static/stal-in-logo.png

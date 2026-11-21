@@ -33,10 +33,10 @@
     {{ metric("Верные прогнозы", "%.1f"|format(metrics.accuracy * 100) ~ " %") }}
     {{ metric("Macro-F1", "%.3f"|format(metrics.macro_f1)) }}
   </div>
-  {% if not current and version.number == 1 %}
+  {% if not current %}
     <div class="status warning">
-      <strong>Справочные метрики v1</strong>
-      <p>Часть выборки использовалась при обучении базовой модели.</p>
+      <strong>Справочные метрики v{{ version.number }}</strong>
+      <p>Обучающая выборка сохранённой модели могла включать контрольные записи.</p>
     </div>
   {% endif %}
   <div class="columns">

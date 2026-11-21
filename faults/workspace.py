@@ -15,7 +15,7 @@ from faults.model import Dataset, Evaluation, evaluate, fit_model
 
 @dataclass(frozen=True)
 class ModelVersion:
-    number: int
+    number: int | float
     model: object
     evaluation: Evaluation
     label_count: int
