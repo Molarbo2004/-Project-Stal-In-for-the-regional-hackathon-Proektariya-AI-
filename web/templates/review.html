@@ -16,12 +16,14 @@
     <form method="get" action="/review" class="card picker">
       <label for="batch">Партии в порядке приоритета</label>
       <div class="input-row">
-        <select id="batch" name="batch">
+        <select id="batch" name="batch" required>
+          {% if not batch_id %}<option value="" selected disabled>Выберите датасет</option>{% endif %}
           {% for item in batches %}<option value="{{ item.id }}" {% if item.id == batch_id %}selected{% endif %}>{{ item.name }} · {{ statuses[item.status] }} · {{ item.count }} записей</option>{% endfor %}
         </select>
         <button class="button" type="submit">Открыть</button>
       </div>
     </form>
+    {% if batch_id %}
     {% if report.status == "shift" %}
       <div class="status warning"><strong>Обнаружен сдвиг</strong><p>Наибольшее изменение · {{ report.scores.index[0] }}</p></div>
     {% elif report.status == "stable" %}
@@ -66,7 +68,7 @@
       <div class="stack">
         <section class="card">
           <h2>Обновление модели</h2>
-          <p class="muted">Активна v{{ version.number }} · пригодных меток {{ eligible }}</p>
+          <p class="muted">Датасет «{{ batch_name }}» · пригодных меток {{ eligible }}</p>
           <form method="post" action="/review/retrain">
             {{ csrf_field(csrf) }}
             <input type="hidden" name="batch" value="{{ batch_id }}">
@@ -84,5 +86,6 @@
         {% endif %}
       </div>
     </div>
+    {% endif %}
   {% endif %}
 {% endblock %}

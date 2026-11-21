@@ -25,7 +25,7 @@ def test_charts_render_without_a_window():
 
 
 def test_operator_flow(monkeypatch, tmp_path):
-    monkeypatch.setenv("STEEL_QC_WORKSPACE", str(tmp_path / "work.db"))
+    monkeypatch.setenv("STAL_IN_WORKSPACE", str(tmp_path / "work.db"))
     artifacts = {p: p.read_bytes() for p in (APP.parent / "base model").glob("*.pkl")}
     with TestClient(create_app()) as client:
         def post(path, page, **data):
@@ -40,7 +40,9 @@ def test_operator_flow(monkeypatch, tmp_path):
         assert len(result.context["predictions"]) == 128
         exported = client.get("/batches/predictions.csv")
         assert exported.status_code == 200 and len(exported.text.splitlines()) == 129
-        review = client.get("/review")
+        assert "/review/retrain" not in client.get("/review").text
+        assert post("/review/retrain", result, batch=result.context["batch"].id).status_code == 409
+        review = client.get("/review", params={"batch": result.context["batch"].id})
         assert review.context["report"].status == "shift"
         for number in (2, 3):
             label = review.context["queue"][0]
@@ -72,6 +74,21 @@ def test_operator_flow(monkeypatch, tmp_path):
         assert client.get("/").context["batch"] is None
         uploaded = client.post("/batches/upload", data={"csrf": home.context["csrf"]}, files=files)
         assert uploaded.context["batch"].name == "small.json"
+        assert 'action="/batches/demo"' in uploaded.text
+        batch_id = uploaded.context["batch"].id
+        assert f'href="/quality?batch={batch_id}">Показать качество' in uploaded.text
+        quality = client.get(f"/quality?batch={batch_id}")
+        assert quality.context["metrics"] is None
+        assert "Средняя уверенность модели" in quality.text
+        assert "минимум 30 записей" in quality.text
+        review = client.get("/review", params={"batch": batch_id})
+        entry = review.context["queue"][0]
+        post("/review/label", review, batch=batch_id, position=entry["position"], label=entry["class"])
+        metrics = client.get("/quality").context["metrics"]
+        assert metrics.size == 1 and metrics.accuracy == 1
+        assert client.get("/quality?batch=uci").context["metrics"].size == 389
+        assert post("/batches/demo", uploaded).context["batch"].count == 128
+        assert "Обнаружен сдвиг признаков" in client.get("/quality").text
         rejected = client.post("/batches/upload", data={"csrf": home.context["csrf"]},
                                files={"file": ("bad.json", "[{}]", "application/json")})
         assert rejected.status_code == 422 and rejected.context["issues"]
@@ -79,6 +96,11 @@ def test_operator_flow(monkeypatch, tmp_path):
 
         experiment = client.get("/experiment?run=true&target=0.75&minutes=3&rubles=40")
         assert experiment.status_code == 200 and experiment.context["drift"].trials == 40
+        assert "до дополнительной разметки" in experiment.text
+        revised = client.get("/experiment?run=true&target=0.793&minutes=5&rubles=60")
+        assert "/experiment/chart.png?target=0.793" in revised.text
+        assert "<td>80</td><td>400</td><td>4800</td>" in revised.text
+        assert client.get("/experiment/chart.png?target=0.75").content != client.get("/experiment/chart.png?target=0.793").content
         assert client.get("/experiment/chart.png").content.startswith(b"\x89PNG")
         assert len(client.get("/experiment/results.csv").text.splitlines()) == 31
     assert all(p.read_bytes() == contents for p, contents in artifacts.items())

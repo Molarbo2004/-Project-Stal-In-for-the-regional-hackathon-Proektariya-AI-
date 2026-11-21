@@ -12,6 +12,7 @@
         <summary class="button">Заменить файл</summary>
         {{ upload_form() }}
       </details>
+      {{ demo_form() }}
     </section>
   {% else %}
     <section class="card">
@@ -20,10 +21,7 @@
         <div><strong>CSV, JSON или BSON</strong><small>27 обязательных признаков</small></div>
       </div>
       {{ upload_form() }}
-      <form action="/batches/demo" method="post">
-        {{ csrf_field(csrf) }}
-        <button class="button full" type="submit">Открыть пример</button>
-      </form>
+      {{ demo_form() }}
     </section>
   {% endif %}
   {% if issues %}
@@ -45,6 +43,7 @@
       {% elif batch.status == "insufficient_data" %}<p>Для мониторинга нужно не менее 30 записей.</p>{% endif %}
     </div>
     <a class="button primary full action" href="/review?batch={{ batch.id }}">Открыть проверку партии</a>
+    <a class="button full action" href="/quality?batch={{ batch.id }}">Показать качество</a>
     <div class="columns">
       <section class="card">
         <div class="card-head"><div><h2>Прогнозы партии</h2><p class="muted">Модель v{{ version.number }}</p></div>
@@ -84,4 +83,11 @@
       </tr>{% endfor %}</tbody>
     </table>
   </div>
+{% endmacro %}
+
+{% macro demo_form() %}
+  <form action="/batches/demo" method="post">
+        {{ csrf_field(csrf) }}
+        <button class="button full" type="submit">Открыть пример</button>
+      </form>
 {% endmacro %}

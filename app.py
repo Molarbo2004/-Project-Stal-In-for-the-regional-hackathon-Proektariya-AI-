@@ -8,7 +8,7 @@ from threading import Lock
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -35,7 +35,7 @@ site = APIRouter(include_in_schema=False)
 api = APIRouter()
 
 
-class SteelQC:
+class StalIn:
     def __init__(self, workspace_path: Path):
         features, self.labels = load_uci(ROOT)
         self.split = split_dataset(features, self.labels)
@@ -59,14 +59,12 @@ class SteelQC:
             if self._experiment is None:
                 curves = compare_review(self.split, DEMO_BUDGETS, DEMO_SEEDS)
                 drift = run_drift_demo(self.baseline, self.split.pool[0])
-                image = BytesIO()
-                plot_learning_curves(curves).savefig(image, format="png")
-                self._experiment = curves, drift, image.getvalue()
+                self._experiment = curves, drift
         return self._experiment
 
 
-def service(request: Request) -> SteelQC:
-    return request.app.state.steel_qc
+def service(request: Request) -> StalIn:
+    return request.app.state.stal_in
 
 
 def chosen_model(request: Request) -> ModelVersion:
@@ -104,7 +102,7 @@ def redirect(request: Request, page: str, **query) -> RedirectResponse:
     return RedirectResponse(path.path + (f"?{path.query}" if path.query else ""), status_code=303)
 
 
-def load_upload(qc: SteelQC, upload: UploadFile):
+def load_upload(qc: StalIn, upload: UploadFile):
     payload = upload.file.read(MAX_UPLOAD_BYTES + 1)
     if len(payload) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "Размер файла превышает 200 МБ.")
@@ -139,6 +137,8 @@ def upload_batch(request: Request, file: UploadFile):
         request.session.pop("batch", None)
         return render(request, "recognition", status_code=422, batch=None, issues=error.issues)
     request.session["batch"] = qc.workspace.register_batch(batch, assess_drift(qc.baseline, batch), filename)
+    request.session.pop("review_batch", None)
+    request.session["quality_batch"] = request.session["batch"]
     return redirect(request, "recognition")
 
 
@@ -149,6 +149,8 @@ def demo(request: Request):
     request.session["batch"] = qc.workspace.register_batch(
         batch, assess_drift(qc.baseline, batch), "Пример со сдвигом яркости",
     )
+    request.session.pop("review_batch", None)
+    request.session["quality_batch"] = request.session["batch"]
     return redirect(request, "recognition")
 
 
@@ -162,7 +164,7 @@ def prediction_csv(request: Request):
     except ValueError as error:
         raise HTTPException(404, str(error)) from error
     frame = predict(chosen_model(request).model, batch).rename(columns=PREDICTION_COLUMNS)
-    return csv_response(frame.to_csv(index_label="Запись"), "steel-predictions.csv")
+    return csv_response(frame.to_csv(index_label="Запись"), "stal-in-predictions.csv")
 
 
 @site.get("/review", response_class=HTMLResponse)
@@ -175,8 +177,13 @@ def review(request: Request, batch: str | None = None, position: int | None = No
         return render(request, "review", batches=[], version=version)
     priorities = {item.id: item for item in batches}
     selected = batch or request.session.get("review_batch")
-    current = priorities.get(selected, batches[0])
+    current = priorities.get(selected)
+    if batch and current is None:
+        raise HTTPException(404, "Партия отсутствует.")
+    if current is None:
+        return render(request, "review", batches=batches, statuses=STATUS, version=version)
     request.session["review_batch"] = current.id
+    request.session["quality_batch"] = current.id
     features = workspace.load_batch(current.id)
     report = assess_drift(qc.baseline, features)
     confirmed = workspace.labels_for(current.id)
@@ -189,10 +196,10 @@ def review(request: Request, batch: str | None = None, position: int | None = No
         queue = [dict(item, position=i) for i, item in zip(positions, predictions)]
     entry = next((item for item in queue if item["position"] == position), queue[0] if queue else None)
     characteristics = list(features.iloc[entry["position"]].items()) if entry else []
-    eligible = workspace.editable_labels(qc.split.train, qc.split.validation, qc.split.test)
+    eligible = workspace.editable_labels(qc.split.train, qc.split.validation, qc.split.test, batch_id=current.id)
     return render(request, "review", version=version, batches=batches, batch_id=current.id,
                   statuses=STATUS, report=report, minimum_batch=MIN_BATCH_SIZE, queue=queue,
-                  entry=entry, characteristics=characteristics, eligible=len(eligible),
+                  entry=entry, characteristics=characteristics, eligible=len(eligible), batch_name=current.name,
                   categories=sorted(version.model.classes_))
 
 
@@ -213,9 +220,11 @@ def save_label(request: Request, batch: Annotated[str, Form()], position: Annota
 @site.post("/review/retrain", dependencies=[Depends(check_csrf)])
 def retrain(request: Request, batch: Annotated[str, Form()]):
     qc = service(request)
+    if batch != request.session.get("review_batch"):
+        raise HTTPException(409, "Сначала откройте выбранную партию для дообучения.")
     try:
         version = qc.workspace.retrain(qc.split.train, qc.split.test, validation=qc.split.validation,
-                                       protected_policy="skip")
+                                       protected_policy="skip", batch_id=batch)
     except ValueError as error:
         request.session["notice"] = ("error", str(error))
     except (RuntimeError, sqlite3.Error, OSError):
@@ -238,26 +247,42 @@ def select_model(request: Request, number: Annotated[int, Form(ge=1)], destinati
 
 
 @site.get("/quality", response_class=HTMLResponse)
-def quality(request: Request):
+def quality(request: Request, batch: str | None = None):
     qc = service(request)
     version = chosen_model(request)
-    batch_id = request.session.get("batch")
+    batches = qc.workspace.list_batches()
+    selected = batch or request.session.get("quality_batch") or request.session.get("batch")
+    current = next((item for item in batches if item.id == selected), None)
+    if batch and batch != "uci" and current is None:
+        raise HTTPException(404, "Партия отсутствует.")
+    request.session["quality_batch"] = current.id if current else "uci"
+    metrics = version.evaluation
     batch_counts = []
-    if batch_id and any(item.id == batch_id for item in qc.workspace.list_batches()):
-        batch_counts = counts(predict(version.model, qc.workspace.load_batch(batch_id))["class"])
-    return render(request, "quality", version=version, metrics=version.evaluation,
+    report = None
+    confidence = None
+    if current:
+        features = qc.workspace.load_batch(current.id)
+        predictions = predict(version.model, features)
+        batch_counts = counts(predictions["class"])
+        confidence = predictions["score"].mean()
+        report = assess_drift(qc.baseline, features)
+        labels = qc.workspace.labels_for(current.id)
+        positions = sorted(labels)
+        metrics = evaluate(version.model, features.iloc[positions], [labels[i] for i in positions]) if labels else None
+    return render(request, "quality", version=version, metrics=metrics, batches=batches, current=current,
+                  report=report, confidence=confidence, minimum_batch=MIN_BATCH_SIZE,
                   actual_counts=counts(qc.labels), batch_counts=batch_counts, actual_size=len(qc.labels))
 
 
 @site.get("/experiment", response_class=HTMLResponse)
-def experiment(request: Request, run: bool = False, target: Annotated[float, Query(ge=0, le=1)] = .75,
+def experiment(request: Request, run: bool = False, target: Annotated[float, Query(ge=0, le=1)] = .793,
                minutes: Annotated[float, Query(ge=0, allow_inf_nan=False)] = 3,
                rubles: Annotated[float, Query(ge=0, allow_inf_nan=False)] = 40):
     if not run:
         return render(request, "experiment", run=False)
-    curves, drift, _ = service(request).experiment()
+    curves, drift = service(request).experiment()
     return render(request, "experiment", run=True, drift=drift, target=target, minutes=minutes,
-                  rubles=rubles, savings=estimate_savings(curves, target, minutes, rubles))
+                  rubles=rubles, budgets=DEMO_BUDGETS, savings=estimate_savings(curves, target, minutes, rubles))
 
 
 def csv_response(csv: str, filename: str):
@@ -267,14 +292,23 @@ def csv_response(csv: str, filename: str):
 
 @site.get("/experiment/results.csv")
 def experiment_csv(request: Request):
-    curves, _, _ = service(request).experiment()
+    curves, _ = service(request).experiment()
     return csv_response(curves.to_csv(index=False), "review-experiment.csv")
 
 
 @site.get("/experiment/chart.png")
-def experiment_chart(request: Request):
-    _, _, image = service(request).experiment()
-    return Response(image, media_type="image/png")
+def experiment_chart(request: Request, target: Annotated[float, Query(ge=0, le=1)] = .793):
+    curves, _ = service(request).experiment()
+    image = BytesIO()
+    plot_learning_curves(curves, target).savefig(image, format="png")
+    return Response(image.getvalue(), media_type="image/png")
+
+
+@site.get("/dashboard/data/{name:path}")
+def dashboard_data(name: str):
+    if name not in {"Faults27x7_var", "Faults.NNA", "analysis/benchmark.json", "analysis/holdout_predictions.csv"}:
+        raise HTTPException(404)
+    return FileResponse(ROOT / name)
 
 
 @api.get("/healthz", tags=["Служебное"])
@@ -288,7 +322,8 @@ def models(request: Request):
 
 
 @api.post("/api/predict", tags=["Распознавание"])
-def predict_batch(request: Request, file: UploadFile, version: Annotated[int, Query(ge=1)] = 1):
+def predict_batch(request: Request, file: UploadFile, version: Annotated[int, Query(ge=1)] = 1,
+                  include_features: bool = False):
     """Классифицирует CSV, JSON или BSON без записи партии в рабочее пространство."""
     qc = service(request)
     model = qc.model_version(version)
@@ -299,19 +334,26 @@ def predict_batch(request: Request, file: UploadFile, version: Annotated[int, Qu
         raise HTTPException(422, issues) from error
     report = assess_drift(qc.baseline, batch)
     result = predict(model.model, batch).reset_index(names="row")
+    if include_features:
+        result["features"] = batch.loc[result["row"]].to_dict("records")
     return {"version": version, "monitoring": report.status, "predictions": result.to_dict("records")}
 
 
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(application):
-        path = Path(os.environ.get("STEEL_QC_WORKSPACE", ROOT / ".steel-qc" / "work.db"))
-        application.state.steel_qc = SteelQC(path)
+        default_db = ROOT / ".stal-in" / "work.db"
+        legacy_db = ROOT / ".steel-qc" / "work.db"
+        if legacy_db.is_file() and not default_db.exists():
+            default_db = legacy_db
+        path = Path(os.environ.get("STAL_IN_WORKSPACE") or os.environ.get("STEEL_QC_WORKSPACE") or default_db)
+        application.state.stal_in = StalIn(path)
         yield
 
-    application = FastAPI(title="Steel QC", description="Классификация дефектов стальных листов", lifespan=lifespan)
-    application.add_middleware(SessionMiddleware, secret_key=os.environ.get("STEEL_QC_SESSION_SECRET")
-                               or secrets.token_urlsafe(32), session_cookie="steel_qc",
+    application = FastAPI(title="Stal-In", description="Классификация дефектов стальных листов", lifespan=lifespan)
+    application.add_middleware(SessionMiddleware, secret_key=os.environ.get("STAL_IN_SESSION_SECRET")
+                               or os.environ.get("STEEL_QC_SESSION_SECRET")
+                               or secrets.token_urlsafe(32), session_cookie="stal_in",
                                https_only=os.environ.get("RENDER") == "true")
     application.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
     application.include_router(site)

@@ -4,14 +4,14 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     MPLBACKEND=Agg \
     PORT=10000 \
-    STEEL_QC_WORKSPACE=/var/data/work.db
+    STAL_IN_WORKSPACE=/var/data/work.db
 
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libgomp1 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --uid 10001 steelqc \
-    && install -d -o steelqc -g steelqc /var/data
+    && useradd --create-home --uid 10001 stal-in \
+    && install -d -o stal-in -g stal-in /var/data
 
 COPY requirements.txt .
 RUN python -m pip install --no-cache-dir -r requirements.txt
@@ -19,8 +19,9 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 COPY app.py Faults.NNA Faults27x7_var ./
 COPY faults/ faults/
 COPY web/ web/
+COPY analysis/benchmark.json analysis/holdout_predictions.csv analysis/
 COPY ["base model/", "base model/"]
 
-USER steelqc
+USER stal-in
 EXPOSE 10000
 CMD ["sh", "-c", "exec python -m uvicorn app:app --host 0.0.0.0 --port \"$PORT\""]

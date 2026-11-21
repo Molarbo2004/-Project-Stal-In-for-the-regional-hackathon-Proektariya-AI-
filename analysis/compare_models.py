@@ -1,4 +1,4 @@
-"""Reproduce the Steel QC benchmark from the project directory."""
+"""Reproduce the Stal-In benchmark from the project directory."""
 import json
 import sys
 from pathlib import Path

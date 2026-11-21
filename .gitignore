@@ -2,5 +2,6 @@
 .uv-cache/
 .deps/
 .steel-qc/
+.stal-in/
 __pycache__/
 .pytest_cache/

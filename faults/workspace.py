@@ -134,7 +134,15 @@ class Workspace:
                 ON CONFLICT(signature) DO UPDATE SET label=excluded.label
             """, (signature, label, payload))
 
-    def editable_labels(self, train: Dataset, *protected: Dataset) -> list[tuple]:
+    @staticmethod
+    def _batch_feedback(db, batch_id):
+        return db.execute("""
+            SELECT signature, label, payload FROM labels
+            WHERE signature IN (SELECT signature FROM batch_rows WHERE batch_id=?)
+            ORDER BY signature
+        """, (batch_id,)).fetchall()
+
+    def editable_labels(self, train: Dataset, *protected: Dataset, batch_id: str) -> list[tuple]:
         columns = list(train[0].columns)
         known = {
             row_signature(columns, values)
@@ -142,7 +150,7 @@ class Workspace:
             for values in x.to_numpy()
         }
         with self.transaction() as db:
-            rows = db.execute("SELECT signature, label, payload FROM labels ORDER BY signature").fetchall()
+            rows = self._batch_feedback(db, batch_id)
         return [row for row in rows if row[0] not in known]
 
     def current_version(self) -> ModelVersion | None:
@@ -163,7 +171,7 @@ class Workspace:
         return pickle.loads(row[0])
 
     def retrain(
-        self, train: Dataset, test: Dataset, *, validation: Dataset | None = None,
+        self, train: Dataset, test: Dataset, *, batch_id: str, validation: Dataset | None = None,
         protected_policy: str = "raise",
     ) -> ModelVersion:
         columns = list(train[0].columns)
@@ -173,7 +181,7 @@ class Workspace:
         }
         with self.transaction() as db:
             db.execute("BEGIN IMMEDIATE")
-            feedback = db.execute("SELECT signature, label, payload FROM labels ORDER BY signature").fetchall()
+            feedback = self._batch_feedback(db, batch_id)
             if protected_policy == "raise" and any(row[0] in blocked for row in feedback):
                 raise ValueError("Найдены контрольные записи, исключённые из дообучения.")
             existing = {row_signature(columns, x) for x in train[0].to_numpy()}

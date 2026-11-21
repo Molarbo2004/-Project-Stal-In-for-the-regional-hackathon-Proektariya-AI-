@@ -5,17 +5,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#1c1815">
-  <title>{% block title %}{{ pages[page] }}{% endblock %} · Steel QC</title>
-  <link rel="stylesheet" href="/static/steel.css">
-  <script src="/static/steel.js" defer></script>
+  <title>{% block title %}{{ pages[page] }}{% endblock %} · Stal-In</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/stal-in.css">
+  <script src="/static/stal-in.js" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Перейти к содержимому</a>
   <div class="shell">
     <header class="chrome">
       <a class="brand" href="/">
-        <span class="logo" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span><strong>Steel QC</strong><small>Контроль стальных листов</small></span>
+        <img class="logo" src="/static/stal-in-logo.png" width="44" height="44" alt="">
+        <span><strong>Stal-In</strong><small>Контроль стальных листов</small></span>
       </a>
       <details class="model-selector">
         <summary>Модель v{{ version.number }}</summary>
@@ -45,6 +46,7 @@
             <span>{{ label }}</span>
           </a>
         {% endfor %}
+        <a href="/static/dashboard.html"><span class="nav-icon icon-dashboard" aria-hidden="true"></span><span>Дашборд</span></a>
       </nav>
     </header>
     <main id="main">

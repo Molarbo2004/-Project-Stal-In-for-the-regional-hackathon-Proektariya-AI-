@@ -10,7 +10,7 @@
       <section class="card">
         <h2>Качество при равном бюджете</h2>
         <p class="muted">Macro-F1 · среднее по трём запускам</p>
-        <img class="chart" src="/experiment/chart.png" alt="График Macro-F1 по числу ручных разметок для активного и случайного отбора">
+        <img class="chart" src="/experiment/chart.png?target={{ target }}" alt="График Macro-F1 по числу ручных разметок для активного и случайного отбора">
         <a href="/experiment/results.csv" class="button">Скачать результаты CSV</a>
       </section>
       <section class="card">
@@ -28,7 +28,19 @@
           <div class="estimate"><span>Экономия при заданных ставках</span>
             <strong>{{ "%g"|format(savings.minutes) }} мин · {{ "%g"|format(savings.rubles) }} ₽</strong></div>
           <p class="muted">Активный отбор · {{ savings.active_budget }} меток. Случайный · {{ savings.random_budget }}.</p>
+          {% if savings.active_budget == 0 and savings.random_budget == 0 %}
+            <p>Обе стратегии достигли цели до дополнительной разметки.</p>
+          {% elif savings.labels == 0 %}
+            <p>Обе стратегии впервые достигли цели при одинаковом числе меток.</p>
+          {% endif %}
         {% else %}<p class="muted">Для расчёта обе стратегии должны достичь цели.</p>{% endif %}
+        <table>
+          <caption>Затраты по бюджету разметки</caption>
+          <thead><tr><th>Меток</th><th>Минут</th><th>₽</th></tr></thead>
+          <tbody>{% for budget in budgets %}
+            <tr><td>{{ budget }}</td><td>{{ "%g"|format(budget * minutes) }}</td><td>{{ "%g"|format(budget * rubles) }}</td></tr>
+          {% endfor %}</tbody>
+        </table>
       </section>
     </div>
     <div class="metrics">

@@ -1,1 +1,1 @@
-"""Steel QC application logic."""
+"""Stal-In application logic."""

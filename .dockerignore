@@ -13,3 +13,10 @@
 !web/static/*.js
 !base model/
 !base model/*.pkl
+
+!web/static/dashboard.html
+!analysis/
+!analysis/benchmark.json
+!analysis/holdout_predictions.csv
+!web/static/favicon.png
+!web/static/stal-in-logo.png
