@@ -35,7 +35,7 @@ def test_operator_flow(monkeypatch, tmp_path):
         result = post("/batches/demo", home)
         workspace = client.app.state.stal_in.workspace
         sample = workspace.load_batch(result.context["batch"].id)
-        source, _ = load_uci(APP.parent)
+        source, source_labels = load_uci(APP.parent)
         assert sample.columns.equals(source.columns)
         assert pd.MultiIndex.from_frame(sample).isin(pd.MultiIndex.from_frame(source)).all()
         assert len(result.context["predictions"]) == 128
@@ -68,18 +68,22 @@ def test_operator_flow(monkeypatch, tmp_path):
 
         records = load_uci(APP.parent)[0].iloc[:2].to_json(orient="records")
         files = {"file": ("small.json", records, "application/json")}
-        holdout = client.get("/dashboard/data/holdout.json").json()
-        assert len(holdout) == 389
+        oof = client.get("/dashboard/data/oof.json").json()
+        assert [row["source_line"] for row in oof] == list(range(1, len(source) + 1))
+        assert {row["fold"] for row in oof} == {1, 2, 3, 4, 5}
         for number, name in [(0, "Baseline"), (1, "GridSearch"), (1.1, "Optuna")]:
             quality = post("/models/select", home, number=number, destination="quality")
-            assert quality.context["version"].number == number
+            version = quality.context["version"]
+            assert version.number == number
+            assert version.evaluation.size == len(source)
+            assert version.evaluation.accuracy == (version.model.predict(source) == source_labels).mean()
             forecast = client.post(f"/api/predict?version={number}", files=files).json()
             assert forecast["version"] == number and len(forecast["predictions"]) == 2
             assert forecast["monitoring"] == "insufficient_data"
             key = name.lower()
-            correct = sum(row[key] == row["truth"] for row in holdout)
-            assert correct / len(holdout) == quality.context["version"].evaluation.accuracy
-            assert all(0 <= row[key + "_margin"] <= row[key + "_score"] <= 1 for row in holdout)
+            correct = sum(row[key] == row["truth"] for row in oof)
+            assert correct / len(oof) == client.get("/quality?batch=uci").context["metrics"].accuracy
+            assert all(0 <= row[key + "_margin"] <= row[key + "_score"] <= 1 for row in oof)
         assert client.post("/api/predict?version=3", files=files).status_code == 404
         assert client.get("/").context["batch"] is None
         uploaded = client.post("/batches/upload", data={"csrf": home.context["csrf"]}, files=files)
@@ -96,7 +100,7 @@ def test_operator_flow(monkeypatch, tmp_path):
         post("/review/label", review, batch=batch_id, position=entry["position"], label=entry["class"])
         metrics = client.get("/quality").context["metrics"]
         assert metrics.size == 1 and metrics.accuracy == 1
-        assert client.get("/quality?batch=uci").context["metrics"].size == 389
+        assert client.get("/quality?batch=uci").context["metrics"].size == len(source)
         assert post("/batches/demo", uploaded).context["batch"].count == 128
         assert client.get("/quality").context["current"].id == result.context["batch"].id
         rejected = client.post("/batches/upload", data={"csrf": home.context["csrf"]},

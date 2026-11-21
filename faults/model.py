@@ -54,8 +54,11 @@ def predict(model, features: pd.DataFrame) -> pd.DataFrame:
 
 
 def evaluate(model, features: pd.DataFrame, labels: pd.Series) -> Evaluation:
-    predictions = model.predict(features)
-    classes = sorted(set(model.classes_) | set(labels))
+    return evaluate_predictions(labels, model.predict(features), model.classes_)
+
+
+def evaluate_predictions(labels, predictions, classes) -> Evaluation:
+    classes = sorted(set(classes) | set(labels))
     p, r, f1, count = precision_recall_fscore_support(labels, predictions, labels=classes, zero_division=0)
     report = pd.DataFrame({"precision": p, "recall": r, "f1": f1, "support": count}, index=classes)
-    return Evaluation(float(accuracy_score(labels, predictions)), float(f1.mean()), report, len(features))
+    return Evaluation(float(accuracy_score(labels, predictions)), float(f1.mean()), report, len(labels))

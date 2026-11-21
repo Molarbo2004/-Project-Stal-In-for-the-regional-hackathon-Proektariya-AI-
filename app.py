@@ -16,7 +16,7 @@ from faults.base_model import BaseModel, MODELS
 from faults.comparison import compare_predictions, load_comparison
 from faults.data import BatchInputError, import_batch, load_uci
 from faults.drift import MIN_BATCH_SIZE, assess_drift, fit_drift_baseline
-from faults.model import evaluate, predict, split_dataset
+from faults.model import evaluate, evaluate_predictions, predict, split_dataset
 from faults.review import rank_for_review
 from faults.workspace import ModelVersion, Workspace
 
@@ -37,19 +37,26 @@ class StalIn:
         self.split = split_dataset(features, self.labels)
         self.baseline = fit_drift_baseline(self.split.train[0], self.split.validation[0])
         self.versions = {}
+        self.oof_metrics = {}
+        oof = pd.read_csv(ROOT / "analysis" / "primary_oof.csv")
+        if (oof.source_line.tolist() != (features.index + 1).tolist()
+                or oof.truth.tolist() != self.labels.tolist() or oof.isna().any().any()):
+            raise ValueError("Прогнозы OOF не соответствуют датасету UCI.")
+        self.oof = oof.to_dict("records")
         test, truth = self.split.test
         results = pd.DataFrame({"source_line": test.index + 1, "truth": truth}, index=test.index)
         classes = (ROOT / "Faults27x7_var").read_text().split()[27:]
         for number, name in MODELS.items():
             model = BaseModel(ROOT / "base model", name, classes)
-            self.versions[number] = ModelVersion(number, model, evaluate(model, test, truth), 0)
+            self.versions[number] = ModelVersion(number, model, evaluate(model, features, self.labels), 0)
             predictions = predict(model, test)
             key = name.lower()
+            self.oof_metrics[number] = evaluate_predictions(self.labels, oof[key], classes)
             results[key] = predictions["class"]
             results[key + "_margin"] = predictions["margin"]
             results[key + "_score"] = predictions["score"]
         self.holdout = results.to_dict("records")
-        self.pairs = compare_predictions(results, truth, MODELS.values())
+        self.pairs = compare_predictions(oof, oof.truth, MODELS.values())
         self.cv, self.folds, self.cv_pairs = load_comparison(ROOT / "analysis" / "primary_5x2.csv", MODELS.values())
         self.workspace = Workspace(workspace_path)
 
@@ -80,7 +87,7 @@ def render(request: Request, page: str, *, status_code=200, version=None, **cont
     if "csrf" not in request.session:
         request.session["csrf"] = secrets.token_urlsafe(32)
     if page == "recognition":
-        context.update(pairs=qc.pairs, cv=qc.cv, folds=qc.folds, cv_pairs=qc.cv_pairs, active_models=qc.versions)
+        context.update(pairs=qc.pairs, cv=qc.cv, folds=qc.folds, cv_pairs=qc.cv_pairs, active_models=qc.versions, oof_metrics=qc.oof_metrics)
     context.update(page=page, pages=PAGES, csrf=request.session["csrf"],
                    version=version or chosen_model(request),
                    versions=MODELS,
@@ -258,7 +265,7 @@ def quality(request: Request, batch: str | None = None):
     if batch and batch != "uci" and current is None:
         raise HTTPException(404, "Партия отсутствует.")
     request.session["quality_batch"] = current.id if current else "uci"
-    metrics = version.evaluation
+    metrics = qc.oof_metrics[version.number]
     batch_counts = []
     report = None
     confidence = None
@@ -283,6 +290,8 @@ def csv_response(csv: str, filename: str):
 
 @site.get("/dashboard/data/{name:path}")
 def dashboard_data(name: str, request: Request):
+    if name == "oof.json":
+        return service(request).oof
     if name == "holdout.json":
         return service(request).holdout
     if name not in {"Faults27x7_var", "Faults.NNA"}:

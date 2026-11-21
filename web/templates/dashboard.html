@@ -15,7 +15,7 @@
         <section class="card">
           <h2>Демонстрационные партии</h2>
           <div class="row">
-            <button class="button small" id="useHoldout">Партия: holdout 389</button>
+            <button class="button small" id="useHoldout">Весь UCI · {{ version.evaluation.size }} записей</button>
             <button class="button small" id="useShift">Партия: сдвиг яркости 128</button>
           </div>
         </section>
@@ -46,13 +46,13 @@
             <label class="model-option"><input type="checkbox" name="compare-model" value="{{ name }}" checked> v{{ n }} · {{ name }}</label>
           {% endfor %}</div>
         </fieldset>
-        <p>Accuracy и macro-F1 рассчитаны для трёх сохранённых моделей на одних и тех же {{ version.evaluation.size }} записях UCI. Эти оценки справочные, поскольку обучающие выборки сохранённых моделей могли включать контрольные записи.</p>
+        <p>Все {{ version.evaluation.size }} записей UCI проверены по одному разу в стратифицированной проверке на пяти разбиениях (OOF). Для каждой записи прогноз сделала модель, обученная на остальных четырёх частях. Последний столбец показывает долю верных ответов исходного .pkl на всём UCI, включая знакомые ему примеры.</p>
         <ul class="bars" aria-label="Macro-F1"><li><strong>Macro-F1</strong></li>{% for n, model in active_models.items() %}
-          <li data-compare="{{ versions[n] }}"><span>v{{ n }} · {{ versions[n] }}</span><span class="track"><i style="width:{{ 100 * model.evaluation.macro_f1 }}%"></i></span><strong>{{ "%.3f"|format(model.evaluation.macro_f1) }}</strong></li>
+          <li data-compare="{{ versions[n] }}"><span>v{{ n }} · {{ versions[n] }}</span><span class="track"><i style="width:{{ 100 * oof_metrics[n].macro_f1 }}%"></i></span><strong>{{ "%.3f"|format(oof_metrics[n].macro_f1) }}</strong></li>
         {% endfor %}</ul>
         <div class="table-wrap"><table>
-          <thead><tr><th>Модель</th><th>Accuracy</th><th>Macro-F1</th></tr></thead>
-          <tbody>{% for n, model in active_models.items() %}<tr data-compare="{{ versions[n] }}"><th>v{{ n }} · {{ versions[n] }}</th><td>{{ "%.3f"|format(model.evaluation.accuracy) }}</td><td>{{ "%.3f"|format(model.evaluation.macro_f1) }}</td></tr>{% endfor %}</tbody>
+          <thead><tr><th>Модель</th><th>Accuracy OOF</th><th>Macro-F1 OOF</th><th>Accuracy .pkl на всём UCI</th></tr></thead>
+          <tbody>{% for n, model in active_models.items() %}<tr data-compare="{{ versions[n] }}"><th>v{{ n }} · {{ versions[n] }}</th><td>{{ "%.3f"|format(oof_metrics[n].accuracy) }}</td><td>{{ "%.3f"|format(oof_metrics[n].macro_f1) }}</td><td>{{ "%.3f"|format(model.evaluation.accuracy) }}</td></tr>{% endfor %}</tbody>
         </table></div>
       </section>
       <section class="card">
@@ -72,7 +72,7 @@
       </section>
       <section class="card" data-pairwise>
         <h2>Тест Мак-Немара</h2>
-        <p>Сравнение прогнозов сохранённых моделей на контрольной выборке UCI. Для каждой пары показаны односторонние выигрыши и точное двустороннее p-значение.</p>
+        <p>Сравнение вневыборочных прогнозов на всех записях UCI. Для каждой пары показаны односторонние выигрыши и точное двустороннее p-значение.</p>
         <div class="table-wrap"><table>
           <thead><tr><th>Пара моделей</th><th>Верно только у первой</th><th>Верно только у второй</th><th>p</th></tr></thead>
           <tbody>{% for a, b, wins, losses, p in pairs %}<tr data-compare="{{ a }} {{ b }}"><th>{{ a }} / {{ b }}</th><td>{{ wins }}</td><td>{{ losses }}</td><td>{{ "%.4f"|format(p) }}</td></tr>{% endfor %}</tbody>
@@ -84,7 +84,7 @@
     <section id="s-quality">
       <div class="card">
         <div class="card-head">
-          <h2>Качество на holdout</h2>
+          <h2>Качество на всём UCI · OOF</h2>
           <div class="row">
             <label for="quality-model">Модель для детализации</label>
             <select id="quality-model">{% for n, name in versions.items() %}
@@ -92,7 +92,7 @@
             {% endfor %}</select>
           </div>
         </div>
-        <p class="muted">Метрики считаются в браузере из ваших реальных прогнозов на фиксированной тестовой выборке. Строка <code>source_line</code> связывает прогноз с записью <code>Faults.NNA</code>.</p>
+        <p class="muted">Метрики рассчитаны по вневыборочным прогнозам для всех {{ version.evaluation.size }} записей. Строка <code>source_line</code> связывает прогноз с записью <code>Faults.NNA</code>.</p>
         <div class="metrics" id="qKpis"></div>
       </div>
       <div class="columns">

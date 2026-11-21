@@ -35,7 +35,7 @@ const csvBom=s=>"\ufeff"+s;
 /* ================= СОСТОЯНИЕ ================= */
 const S={
   names:[],features:[],targets:[],rows:[],labels:[],
-  split:null,baseline:null,holdout:[],
+  split:null,baseline:null,oof:[],
   batches:[],batchId:null,drift:null,qModel:document.getElementById("dashboard-version").dataset.model,queue:[],entry:null,
   labelsStore:{},demo:null,
   sources:{nna:"idle",var:"idle",hold:"idle"},calibrated:false
@@ -72,7 +72,7 @@ function setSrc(key,state,note){S.sources[key]=state;renderSources(note)}
 function renderSources(){
   const defs=[["var","Faults27x7_var","имена 27 признаков и 7 категорий"],
     ["nna","Faults.NNA","1941 запись · 34 столбца"],
-    ["hold","Прогнозы моделей","три основные модели на контрольной выборке"]];
+    ["hold","Прогнозы моделей","вневыборочные прогнозы трёх моделей на всём UCI"]];
   $("#srcList").innerHTML=defs.map(([k,name,desc])=>{
     const st=S.sources[k];const cls=st==="ok"?"ok":st==="bad"?"bad":st==="load"?"load":"";
     const label=st==="ok"?"загружен":st==="bad"?"недоступен":st==="load"?"загрузка…":"ожидание";
@@ -236,8 +236,8 @@ function rankForReview(rows,limit){
   return selected.map((s,k)=>({position:cand[s],priority:1-margins[cand[s]]+.35*Math.min(k===0?0:nearest[s],3)}))}
 
 /* ================= ПАРТИИ ================= */
-function holdoutBatch(model){
-  return S.holdout.map(h=>{
+function oofBatch(model){
+  return S.oof.map(h=>{
     const line=Number(h.source_line)-1;
     const features=S.rows[line]||null;
     if(!features)return null;
@@ -277,27 +277,27 @@ function renderKpis(){
   const q=qualityData();
   const items=[
     ["Записей в датасете",S.rows.length||"—","UCI Steel Plates Faults"],
-    ["Holdout",S.holdout.length||"—","фиксированная тестовая выборка"],
+    ["Записей с OOF-прогнозом",S.oof.length||"—","пять разбиений UCI"],
     ["Лучшая модель по 5×2 CV",MODEL_NAMES[winner.toLowerCase()],"macro-F1 "+f3(best.macro_f1)],
     ["Партия",b?b.rows.length:"—",b?b.label:"не выбрана"],
     ["Мониторинг",d?STATUS[d.status]:"—",d&&d.score!=null?"KS "+f3(d.score)+" / порог "+f3(d.threshold):"нужно ≥ 30 записей"],
-    ["Accuracy на holdout",q?pc(q.accuracy):"—",q?MODEL_NAMES[qualityModel.value]:""],
-    ["Macro-F1 на holdout",q?f3(q.macro_f1):"—",q?q.size+" записей":""],
+    ["Accuracy OOF",q?pc(q.accuracy):"—",q?MODEL_NAMES[qualityModel.value]:""],
+    ["Macro-F1 OOF",q?f3(q.macro_f1):"—",q?q.size+" записей":""],
     ["Подтверждено меток",Object.values(S.labelsStore).reduce((s,o)=>s+Object.keys(o).length,0),"готово к дообучению"]
   ];
   $("#kpis").innerHTML=items.map(([l,v,s])=>
     '<div class="card metric"><span>'+esc(l)+'</span><strong>'+esc(v)+'</strong><em>'+esc(s)+'</em></div>').join("")}
 
 function qualityData(){
-  if(!S.holdout.length)return null;
-  const truth=S.holdout.map(h=>h.truth),pred=S.holdout.map(h=>h[qualityModel.value]);
+  if(!S.oof.length)return null;
+  const truth=S.oof.map(h=>h.truth),pred=S.oof.map(h=>h[qualityModel.value]);
   if(pred.some(p=>p===undefined))return null;
   return confusion(truth,pred)}
 
 function renderQualityRadar(metrics){
   const container = $("#radarChart");
   if (!metrics) {
-    container.textContent = "Для диаграммы нужны прогнозы на контрольной выборке.";
+    container.textContent = "Для диаграммы нужны прогнозы на всём UCI.";
     return;
   }
   const center = {x:180, y:122};
@@ -356,12 +356,12 @@ function renderQuality(){
 
 function renderMargin(){
   const key=qualityModel.value+"_margin";
-  const vals=S.holdout.map(h=>Number(h[key])).filter(v=>!isNaN(v));
+  const vals=S.oof.map(h=>Number(h[key])).filter(v=>!isNaN(v));
   if(!vals.length){$("#mgChart").innerHTML="";return}
   const bins=20,h=new Array(bins).fill(0);
   vals.forEach(v=>{h[clamp(Math.floor(v*bins),0,bins-1)]++});
   const max=Math.max(...h),W=520,H=150,bw=W/bins;
-  const wrong=S.holdout.map((r,i)=>r.truth!==r[qualityModel.value]);
+  const wrong=S.oof.map((r,i)=>r.truth!==r[qualityModel.value]);
   const hw=new Array(bins).fill(0);
   vals.forEach((v,i)=>{if(wrong[i])hw[clamp(Math.floor(v*bins),0,bins-1)]++});
   let s='<svg class="chart" viewBox="0 0 '+W+' '+(H+24)+'" role="img" aria-label="Распределение margin">';
@@ -378,9 +378,9 @@ function renderMargin(){
   $("#mgLegend").innerHTML='<span><i style="background:#8c7b70"></i>все записи</span><span><i style="background:#c0392b"></i>ошибочные прогнозы</span><span><i style="background:var(--orange)"></i>средний margin</span>'}
 
 function renderDisputed(){
-  const all=S.holdout.filter(h=>Object.keys(MODEL_NAMES).every(key=>h[key]!==h.truth));
+  const all=S.oof.filter(h=>Object.keys(MODEL_NAMES).every(key=>h[key]!==h.truth));
   const same=all.filter(h=>new Set(Object.keys(MODEL_NAMES).map(key=>h[key])).size===1);
-  $("#disputedKpi").innerHTML='<div class="metrics"><div class="card metric"><span>Ошиблись все три</span><strong>'+all.length+'</strong><em>из '+S.holdout.length+'</em></div>'+
+  $("#disputedKpi").innerHTML='<div class="metrics"><div class="card metric"><span>Ошиблись все три</span><strong>'+all.length+'</strong><em>из '+S.oof.length+'</em></div>'+
     '<div class="card metric"><span>Совпал неверный ответ</span><strong>'+same.length+'</strong><em>общая причина, не случайность</em></div></div>';
   const rows=all.slice(0,12);
   $("#disputedTable").innerHTML=rows.length?'<thead><tr><th class="number">Строка</th><th>Истина</th>'+Object.values(MODEL_NAMES).map(name=>'<th>'+esc(name)+'</th>').join("")+'<th class="number">margin</th></tr></thead><tbody>'+
@@ -511,13 +511,13 @@ async function loadAll(){
   try{const t=await fetchText("Faults.NNA");
     if(S.names.length){S.matrix=parseNNA(t,S.names);buildDataset();setSrc("nna","ok")}else setSrc("nna","bad")}
   catch(e){setSrc("nna","bad")}
-  try{S.holdout=JSON.parse(await fetchText("holdout.json"));setSrc("hold","ok")}
+  try{S.oof=JSON.parse(await fetchText("oof.json"));setSrc("hold","ok")}
   catch(e){setSrc("hold","bad")}
   renderAll();
   if(S.rows.length){
-    if(S.holdout.length){const rows=holdoutBatch(S.qModel);
-      addBatch("holdout","Holdout · "+MODEL_NAMES[S.qModel],rows,
-        "Прогнозы выбранной модели, признаки связаны по source_line.")}
+    if(S.oof.length){const rows=oofBatch(S.qModel);
+      addBatch("oof","Весь UCI · OOF · "+MODEL_NAMES[S.qModel],rows,
+        "Вневыборочные прогнозы по всем записям UCI.")}
     const payload = document.getElementById("dashboard-batch");
     if (payload) {
       const batch = JSON.parse(payload.textContent);
@@ -536,13 +536,16 @@ $("#reload").onclick=loadAll;
 $("#batchSel").onchange=e=>{S.batchId=e.target.value;S.entry=null;assessCurrent()};
 $("#qLimit").onchange=()=>{buildQueue();renderQueue()};
 $("#runDemo").onclick=runDriftDemo;
-$("#useHoldout").onclick=()=>{if(!S.holdout.length){toast("Контрольные прогнозы не загружены","err");return}
-  addBatch("holdout","Holdout · "+MODEL_NAMES[S.qModel],holdoutBatch(S.qModel),
-    "Прогнозы выбранной модели, признаки связаны по source_line.");
-  toast("Партия holdout загружена","ok")};
+$("#useHoldout").onclick=()=>{if(!S.oof.length){toast("Контрольные прогнозы не загружены","err");return}
+  addBatch("oof","Весь UCI · OOF · "+MODEL_NAMES[S.qModel],oofBatch(S.qModel),
+    "Вневыборочные прогнозы по всем записям UCI.");
+  toast("Партия UCI загружена","ok")};
 $("#useShift").onclick=async ()=>{
   if(!S.baseline){toast("Дождитесь калибровки порогов","err");return}
-  const base=holdoutBatch(S.qModel).slice(0,128);
+  const rowsByLine = oofBatch(S.qModel);
+  const rng = mulberry32(42);
+  const base = rowsByLine.map(row => ({row, order:rng()}))
+    .sort((a,b) => a.order-b.order).slice(0,128).map(item => item.row);
   if(base.length<MIN_BATCH){toast("Недостаточно записей для демо-сдвига","err");return}
   const rows=shiftBrightness(base);
   const form=new FormData();
@@ -581,10 +584,12 @@ $("#expKs").onclick=()=>{if(!S.drift||!S.drift.scores||!S.drift.scores.length){t
   const body=S.drift.scores.map(x=>[x.feature,f3(x.score),f3(S.drift.threshold),STATUS[S.drift.status]].join(",")).join("\n");
   download("steel-ks.csv",csvBom(head+"\n"+body),"text/csv;charset=utf-8");toast("KS выгружены","ok")};
 $("#expJson").onclick=()=>{const q=qualityData();
+  const savedAccuracy = JSON.parse($("#dashboard-saved-accuracy").textContent);
   download("stal-in-dashboard.json",JSON.stringify({
     generated:new Date().toISOString(),dataset:S.rows.length,split:S.split?{train:S.split.train.length,validation:S.split.validation.length,pool:S.split.pool.length,test:S.split.test.length}:null,
+    saved_accuracy_full_uci:Object.fromEntries(selectedModels().map(name => [name, savedAccuracy[name]])),
     cross_validation:Object.fromEntries(selectedModels().map(name => [name, CV[name]])),
-    holdout:{model:qualityModel.value,accuracy:q?q.accuracy:null,macro_f1:q?q.macro_f1:null,per_class:q?q.per:null},
+    oof:{model:qualityModel.value,accuracy:q?q.accuracy:null,macro_f1:q?q.macro_f1:null,per_class:q?q.per:null},
     drift:S.drift?{status:S.drift.status,score:S.drift.score,threshold:S.drift.threshold,sample_size:S.drift.sample_size}:null,
     drift_demo:S.demo,labels_confirmed:Object.values(S.labelsStore).reduce((s,o)=>s+Object.keys(o).length,0),
     version:Number(document.getElementById("dashboard-version").value)},null,1),"application/json");

@@ -17,5 +17,6 @@
 !web/static/dashboard.html
 !analysis/
 !analysis/primary_5x2.csv
+!analysis/primary_oof.csv
 !web/static/favicon.png
 !web/static/stal-in-logo.png
