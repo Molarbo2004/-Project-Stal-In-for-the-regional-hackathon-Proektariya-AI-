@@ -106,3 +106,12 @@ section[id]{scroll-margin-top:132px;display:grid;gap:12px}
   .grid2{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 }
 }
+@media (max-width: 779px) {
+  #dashboard, #dashboard section[id], #dashboard .grid2, #dashboard .columns { grid-template-columns: minmax(0,1fr); min-width: 0; }
+  #dashboard .card, #dashboard .subnav, #dashboard .table-wrap, #dashboard .row > * { min-width: 0; max-width: 100%; }
+  #dashboard .subnav { position: sticky; }
+}
+@media (max-width: 779px) {
+  #dashboard .card { grid-template-columns: minmax(0,1fr); overflow-wrap: anywhere; }
+  #dashboard .src-item > * { min-width: 0; }
+}

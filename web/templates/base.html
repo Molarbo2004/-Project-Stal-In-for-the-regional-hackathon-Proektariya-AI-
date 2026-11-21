@@ -43,7 +43,7 @@
         {% for key, label in pages.items() %}
           <a href="{{ paths[key] }}" {% if key == page %}aria-current="page"{% endif %}>
             <span class="nav-icon icon-{{ key }}" aria-hidden="true"></span>
-            <span>{{ label }}</span>
+            {% if key == "recognition" %}<span class="nav-full">{{ label }}</span><span class="nav-short">Партия</span>{% else %}<span>{{ label }}</span>{% endif %}
           </a>
         {% endfor %}
       </nav>

@@ -5,10 +5,14 @@
   <script src="/static/dashboard.js" defer></script>
 {% endblock %}
 {% block heading %}
-  <h1>Распознавание и дашборд</h1>
-  <a href="#dashboard">Перейти к дашборду</a>
+  <h1 class="recognition-title">Распознавание и дашборд</h1>
+  <nav class="workspace-switch" aria-label="Работа с партией">
+    <a href="#recognition">Распознавание</a>
+    <a href="#dashboard">Дашборд</a>
+  </nav>
 {% endblock %}
 {% block content %}
+  <div id="recognition" class="recognition-content">
   {% if batch %}
     <section class="card batch-card">
       <div><h2>{{ batch.name }}</h2><p class="muted">{{ batch.count }} записей · 27 признаков</p></div>
@@ -63,6 +67,7 @@
       {{ distribution("Категории партии", "Доля записей по прогнозам модели v" ~ version.number, categories, total=batch.count) }}
     </div>
   {% endif %}
+  </div>
   <input type="hidden" id="dashboard-version" value="{{ version.number }}">
   {% if dashboard_batch %}<script type="application/json" id="dashboard-batch">{{ dashboard_batch|tojson }}</script>{% endif %}
   {% include "dashboard.html" %}

@@ -36,3 +36,32 @@ window.addEventListener("pageshow", () => {
     delete button.dataset.originalLabel;
   });
 });
+
+const workspaceSwitch = document.querySelector(".workspace-switch");
+if (workspaceSwitch) {
+  const mobile = window.matchMedia("(max-width: 779px)");
+  const dashboard = document.getElementById("dashboard");
+  const recognition = document.getElementById("recognition");
+  function updateWorkspace() {
+    const target = document.getElementById(location.hash.slice(1));
+    const showDashboard = target && dashboard.contains(target);
+    recognition.hidden = mobile.matches && Boolean(showDashboard);
+    dashboard.hidden = mobile.matches && !showDashboard;
+    for (const link of workspaceSwitch.querySelectorAll("a")) {
+      if (link.hash === (showDashboard ? "#dashboard" : "#recognition")) {
+        link.setAttribute("aria-current", "location");
+      } else {
+        link.removeAttribute("aria-current");
+      }
+    }
+  }
+  function navigateWorkspace() {
+    updateWorkspace();
+    if (mobile.matches && ["#recognition", "#dashboard"].includes(location.hash)) {
+      window.scrollTo(0, 0);
+    }
+  }
+  window.addEventListener("hashchange", navigateWorkspace);
+  mobile.addEventListener("change", updateWorkspace);
+  navigateWorkspace();
+}
