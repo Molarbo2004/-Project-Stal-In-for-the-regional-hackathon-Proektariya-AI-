@@ -1,0 +1,37 @@
+import fs from 'node:fs/promises';
+import {createRequire} from 'node:module';
+const {Workbook,SpreadsheetFile}=createRequire('C:/Program Files/WindowsApps/OpenAI.CodexPrimaryRuntime.v26-1119-907-0_26.1119.907.0_x64__3k8sg7r9htsxt/dependencies/node/load.cjs')('@oai/artifact-tool');
+const w=Workbook.create(), s=w.worksheets.add('Юнит-экономика');
+const r=a=>s.getRange(a);
+const val=(a,v)=>r(a).values=[[v]];
+const line=(n,t)=>{s.getRange('A'+n+':C'+n).merge();val('A'+n,t)};
+const labels=(n,t)=>val('A'+n,t);
+s.showGridLines=false;
+r('A1:C32').format.font={name:'Arial',size:11,color:'#203542'};
+r('A1:C32').format.rowHeight=21;
+for(const [c,width] of [['A',55],['B',22],['C',24]])r(c+'1:'+c+'32').format.columnWidth=width;
+line(2,'Stal-In   /   Экономика одного решения ОТК');
+r('A2').format.font={name:'Arial',size:16,bold:true,color:'#183848'};
+line(3,'Один случай — одно решение о типе дефекта на одной линии.');
+line(4,'Денежный эффект включает только предотвращённые потери от ошибок.');
+for(const [n,t] of [[6,'Показатель'],[20,'Допущения пилота'],[30,'Основание расчёта']])labels(n,t);
+val('B6','Базовая оценка');val('C6','Ущерб вдвое ниже');
+const lab=['Ущерб от одной ошибки, ₽','Потери до внедрения, ₽/случай','Потери после внедрения, ₽/случай','Предотвращённые потери, ₽/случай','Эксплуатация, ₽/случай','Эффект после эксплуатации, ₽/случай','Вложения в расчёте на случай за весь горизонт, ₽','Эффект с учётом вложений, ₽/случай','Эффект после эксплуатации за год, ₽','Простая окупаемость от запуска, мес.','Минимум ошибок для окупаемости за 2 года, шт./мес.'];
+lab.forEach((v,i)=>labels(i+7,v));
+for(const c of ['B','C']){
+const f=[c==='B'?'$B$24':'$B$24/2',c+'7*$B$22',c+'8*(1-$B$23)',c+'8-'+c+'9','$B$25/(12*$B$21)',c+'10-'+c+'11','$B$26/($B$21*12*$B$27)',c+'12-'+c+'13',c+'12*12*$B$21','IF('+c+'15>0,12*$B$26/'+c+'15+0,"Не окупается")','IF('+c+'7>0,ROUNDUP(($B$25+$B$26/2)/(12*'+c+'7),0),"Нет эффекта")'];
+r(c+'7:'+c+'17').formulas=f.map(v=>['='+v]);}
+const inputs=[['Решения о типе дефекта, шт./мес.',5000],['Ошибки ручной классификации, %',0.12],['Снижение числа ошибок с системой, %',0.4],['Средний ущерб от неверного решения, ₽',1500],['Эксплуатация одной линии, ₽/год',1000000],['Вложения в запуск с резервом, ₽',3500000],['Горизонт распределения вложений, лет',3]];
+r('A21:B27').values=inputs;
+line(28,'Голубые ячейки можно заменить данными линии. Расчёт при постоянном объёме, без дисконтирования.');
+line(31,'Источник — «Экономика.xlsx», Лист1, строки 2–11 и 15–27. Значения являются оценками проекта.');
+line(32,'Вложения включают пять статей сметы с резервом. Экономия времени и простоев исключена.');
+for(const n of [6,20,30])r('A'+n+':C'+n).format={fill:'#225465',font:{name:'Arial',bold:true,color:'#FFFFFF',size:11}};
+for(const n of [12,14])r('A'+n+':C'+n).format={fill:'#DCF0E9',font:{name:'Arial',bold:true,color:'#154839',size:11}};
+r('B21:B27').format.fill='#E7F3FF';r('B21:B27').format.font.color='#124F91';
+r('B7:C14').setNumberFormat('#,##0.00');r('B15:C15').setNumberFormat('#,##0');r('B16:C16').setNumberFormat('0.0');r('B21:B27').setNumberFormat('#,##0');r('B22:B23').setNumberFormat('0%');
+w.recalculate();
+const out='outputs/stal-unit-28d730';await fs.mkdir(out,{recursive:true});
+const img=await w.render({sheetName:s.name,range:'A1:C32',scale:0.85,format:'png'});await fs.writeFile(new URL('preview.png',import.meta.url),new Uint8Array(await img.arrayBuffer()));
+await (await SpreadsheetFile.exportXlsx(w)).save(out+'/Юнит-экономика.xlsx');
+console.log(r('B12:C17').values);

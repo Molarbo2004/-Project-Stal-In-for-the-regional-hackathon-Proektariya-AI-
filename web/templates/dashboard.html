@@ -1,0 +1,215 @@
+<section id="dashboard" aria-labelledby="dashboard-title">
+  <h2 id="dashboard-title">Дашборд</h2>
+    <nav class="subnav" id="subnav" aria-label="Разделы дашборда">
+      <a href="#s-connect" class="on">Данные</a>
+      <a href="#s-models">Модели</a>
+      <a href="#s-quality">Качество</a>
+      <a href="#s-drift">Сдвиг</a>
+      <a href="#s-review">Проверка</a>
+      <a href="#s-export">Экспорт</a>
+    </nav>
+
+    <!-- ПОДКЛЮЧЕНИЕ -->
+    <section id="s-connect">
+      <div class="columns">
+        <section class="card">
+          <h2>Демонстрационные партии</h2>
+          <div class="row">
+            <button class="button small" id="useHoldout">Партия: holdout 389</button>
+            <button class="button small" id="useShift">Партия: сдвиг яркости 128</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Источники данных</h2><button class="button small" id="reload">Обновить</button></div>
+          <div class="src" id="srcList"></div>
+          <div class="progress" id="calibBar" hidden><i></i></div>
+          <p class="muted" id="calibNote"></p>
+          <details><summary class="button small full">Загрузить файлы вручную</summary>
+            <div class="stack" style="margin-top:10px">
+              <label>Faults.NNA<input type="file" id="fNNA" accept=".NNA,.txt,.csv"></label>
+              <label>Faults27x7_var<input type="file" id="fVar"></label>
+              <label>analysis/benchmark.json<input type="file" id="fBench" accept=".json"></label>
+              <label>analysis/holdout_predictions.csv<input type="file" id="fHold" accept=".csv"></label>
+            </div>
+          </details>
+        </section>
+      </div>
+      <div class="metrics" id="kpis"></div>
+    </section>
+
+    <!-- МОДЕЛИ -->
+    <section id="s-models">
+      <div class="columns">
+        <section class="card">
+          <div class="card-head"><h2>Сравнение моделей</h2><span class="badge" id="bmTag">benchmark.json</span></div>
+          <p class="muted" id="bmCaption">Out-of-fold macro-F1 на обучающей выборке, среднее по трём семенам.</p>
+          <div id="bmChart"></div>
+          <div class="legend"><span><i style="background:var(--orange)"></i>macro-F1</span><span><i style="background:#8c7b70"></i>accuracy</span><span><i style="background:var(--border)"></i>разброс по семенам 42 / 47 / 53</span></div>
+        </section>
+        <section class="card">
+          <h2>Время обучения</h2>
+          <p class="muted">Суммарные секунды на 5 фолдов × 3 семени, из поля <code>fit_seconds</code>.</p>
+          <div id="bmTime"></div>
+          <div class="table-wrap"><table id="bmTable"></table></div>
+        </section>
+      </div>
+      {% set holdout = comparison.holdout %}
+      <section class="card">
+        <h2>Тест Мак-Немара</h2>
+        <p>Базовую XGBoost и XGBoost Optuna обучили заново и проверили на одних и тех же {{ holdout.n|int }} отложенных записях Steel Plates Faults.</p>
+        <dl class="data-list">
+          <dt>Верно предсказала только базовая модель</dt><dd>{{ holdout.tuned_only|int }}</dd>
+          <dt>Верно предсказала только Optuna</dt><dd>{{ holdout.optuna_only|int }}</dd>
+          <dt>Точный двусторонний тест</dt><dd>p = {{ "%.4f"|format(holdout.mcnemar_p) }}</dd>
+        </dl>
+        <p>{{ "Различие статистически значимо" if holdout.mcnemar_p < 0.05 else "Статистически значимого различия не обнаружено" }} при α = 0,05.</p>
+      </section>
+      <section class="card">
+        <h2>Перекрёстная проверка 5×2 CV</h2>
+        <p>Обучающую выборку пять раз делили пополам с сохранением долей классов. На каждом разбиении половины менялись ролями. Обе модели обучались и проверялись на одинаковых записях.</p>
+        <dl class="data-list">
+          <dt>Средняя точность базовой XGBoost</dt><dd>{{ "%.2f"|format(100 * comparison.tuned) }} %</dd>
+          <dt>Средняя точность XGBoost Optuna</dt><dd>{{ "%.2f"|format(100 * comparison.optuna) }} %</dd>
+        </dl>
+        {% if comparison.statistic is not none %}
+          <p>Парный t-тест Диттериха (5 степеней свободы) · t = {{ "%.3f"|format(comparison.statistic) }} · p = {{ "%.4f"|format(comparison.p) }}.
+          {{ "Различие статистически значимо" if comparison.p < 0.05 else "Статистически значимого различия не обнаружено" }} при α = 0,05.</p>
+        {% else %}
+          <p>Внутри пар нет вариации разностей, поэтому t-статистика не определена.</p>
+        {% endif %}
+        <details><summary class="button">Точность на каждом разбиении</summary>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Повтор</th><th>Половина</th><th>Базовая XGBoost</th><th>Optuna</th><th>Разница, п. п.</th></tr></thead>
+            <tbody>{% for row in comparison.folds %}<tr><td>{{ row.repeat }}</td><td>{{ row.fold }}</td><td>{{ "%.2f"|format(100 * row.tuned) }} %</td><td>{{ "%.2f"|format(100 * row.optuna) }} %</td><td>{{ "%+.2f"|format(100 * row.delta) }}</td></tr>{% endfor %}</tbody>
+          </table></div>
+        </details>
+      </section>
+    </section>
+
+    <!-- КАЧЕСТВО -->
+    <section id="s-quality">
+      <div class="card">
+        <div class="card-head">
+          <h2>Качество на holdout</h2>
+          <div class="row">
+            <label for="qModel" class="visually-hidden">Модель</label>
+            <select id="qModel" style="width:auto;min-width:190px">
+              <option value="xgb">XGBoost</option><option value="hist">Gradient boosting (hist)</option>
+              <option value="smote">XGBoost + SMOTE</option><option value="rf">Random Forest</option>
+            </select>
+            <span class="badge" id="qTag">holdout_predictions.csv</span>
+          </div>
+        </div>
+        <p class="muted">Метрики считаются в браузере из ваших реальных прогнозов на фиксированной тестовой выборке. Строка <code>source_line</code> связывает прогноз с записью <code>Faults.NNA</code>.</p>
+        <div class="metrics" id="qKpis"></div>
+      </div>
+      <div class="columns">
+        <section class="card">
+          <h2>Матрица ошибок</h2>
+          <p class="muted">Строки — истинная категория, столбцы — прогноз модели.</p>
+          <div id="cmChart"></div>
+        </section>
+        <section class="card">
+          <h2>Метрики по категориям</h2>
+          <p class="muted">F1 по семи типам дефектов. Центр соответствует 0, внешний контур — 1.</p>
+          <div id="radarChart"></div>
+          <div class="table-wrap"><table id="qTable"></table></div>
+        </section>
+      </div>
+      <div class="columns">
+        <section class="card">
+          <h2>Разрыв топ-2 (margin)</h2>
+          <p class="muted">Распределение <code>margin</code>: чем меньше разрыв, тем менее уверена модель. Низкий margin — первый критерий очереди проверки.</p>
+          <div id="mgChart"></div>
+          <div class="legend" id="mgLegend"></div>
+        </section>
+        <section class="card">
+          <h2>Спорные записи</h2>
+          <p class="muted">Строки, где ошиблись все три модели (<code>top3_errors = 3</code>) — кандидаты на пересмотр разметки.</p>
+          <div id="disputedKpi"></div>
+          <div class="table-wrap"><table id="disputedTable"></table></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- СДВИГ -->
+    <section id="s-drift">
+      <div class="card">
+        <div class="card-head"><h2>Мониторинг сдвига</h2><span class="badge grey" id="driftBadge">—</span></div>
+        <p class="muted">Повторяет <code>faults/drift.py</code>: KS-статистика по каждому признаку, порог — 95-й квантиль максимума по 96 розыгрышам калибровочной выборки. Минимум 30 записей.</p>
+        <div class="row">
+          <label for="batchSel" class="visually-hidden">Партия</label>
+          <select id="batchSel" style="flex:1 1 240px"></select>
+          <button class="button" id="runDemo">Прогон 40 пар</button>
+        </div>
+        <div class="metrics" id="driftKpis"></div>
+        <div class="progress" id="demoBar" hidden><i></i></div>
+        <div id="demoResult"></div>
+      </div>
+      <div class="columns">
+        <section class="card">
+          <h2>KS по признакам</h2>
+          <p class="muted">Отсортировано по убыванию. Признаки яркости из <code>BRIGHTNESS</code> подсвечены — именно они меняются в демо-сдвиге.</p>
+          <div id="ksChart"></div>
+        </section>
+        <section class="card">
+          <h2>Порог и партия</h2>
+          <div id="thrChart"></div>
+          <dl class="data-list" id="driftMeta"></dl>
+          <div class="status neutral" id="driftNote"></div>
+        </section>
+      </div>
+      <div class="columns">
+        <section class="card">
+          <h2>Категории партии</h2>
+          <p class="muted" id="distCaption">По прогнозам модели.</p>
+          <ul class="bars" id="distBatch"></ul>
+        </section>
+        <section class="card">
+          <h2>Распределение UCI</h2>
+          <p class="muted" id="uciCaption">Фактические метки всего датасета.</p>
+          <ul class="bars" id="distUci"></ul>
+        </section>
+      </div>
+    </section>
+
+    <!-- ПРОВЕРКА -->
+    <section id="s-review">
+      <div class="columns">
+        <section class="card">
+          <div class="card-head"><h2>Очередь проверки</h2><span class="badge" id="queueTag">—</span></div>
+          <p class="muted">Повторяет <code>rank_for_review</code>: кандидаты по наименьшему margin, затем приоритет <code>1 − margin + 0.35 · min(расстояние, 3)</code> в пространстве, масштабированном межквартильным размахом. Разнообразие не даёт выбрать десять почти одинаковых дефектов.</p>
+          <div class="row">
+            <label for="qLimit">Показать записей</label>
+            <input type="number" id="qLimit" min="1" max="30" value="10" style="width:90px">
+            <button class="button small" id="clearLabels">Сбросить метки партии</button>
+          </div>
+          <div class="queue" id="queue"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Карточка записи</h2><span class="badge grey" id="entryTag">—</span></div>
+          <div id="entry"><div class="empty">Выберите запись из очереди.</div></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ЭКСПОРТ -->
+    <section id="s-export">
+      <div class="columns">
+        <section class="card">
+          <h2>Выгрузка</h2>
+          <p class="muted">CSV прогнозов в формате приложения: <code>Запись, Прогноз, Вероятность, Разрыв топ-2</code>, кодировка UTF-8 с BOM.</p>
+          <div class="stack">
+            <button class="button primary full" id="expPred">Скачать прогнозы партии</button>
+            <button class="button full" id="expLabels">Скачать подтверждённые метки</button>
+            <button class="button full" id="expKs">Скачать KS по признакам</button>
+            <button class="button full" id="expJson">Скачать сводку дашборда (JSON)</button>
+          </div>
+        </section>
+
+      </div>
+      <p class="muted">Данные: M. Buscema, S. Terzi, W. Tastle, 2010. Steel Plates Faults, UCI. Лицензия CC BY 4.0.</p>
+    </section>
+<div class="toast-wrap" id="toasts"></div>
+</section>

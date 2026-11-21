@@ -1,0 +1,7 @@
+model,error_cost,threshold,auto,review,auto_errors,auto_accuracy,total_cost
+refit_holdout,2,0.5,380,9,77,0.7973684210526316,163
+refit_holdout,5,0.8,285,104,27,0.9052631578947368,239
+refit_holdout,10,0.9,243,146,14,0.9423868312757202,286
+saved_reference,2,0.5,385,4,12,0.9688311688311688,28
+saved_reference,5,0.8,362,27,6,0.9834254143646409,57
+saved_reference,10,0.9,323,66,2,0.9938080495356038,86

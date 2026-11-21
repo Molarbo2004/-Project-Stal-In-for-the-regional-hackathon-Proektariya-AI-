@@ -2,9 +2,7 @@ import os
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
-from io import BytesIO
 from pathlib import Path
-from threading import Lock
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Query, Request, UploadFile
@@ -14,11 +12,9 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from faults.base_model import BaseModel
-from faults.charts import plot_learning_curves
+from faults.comparison import load_comparison
 from faults.data import BatchInputError, import_batch, load_uci
 from faults.drift import MIN_BATCH_SIZE, assess_drift, fit_drift_baseline
-from faults.experiments import (DEMO_BUDGETS, DEMO_SEEDS, compare_review, estimate_savings,
-                                run_drift_demo, simulate_brightness_shift)
 from faults.model import evaluate, predict, split_dataset
 from faults.review import rank_for_review
 from faults.workspace import ModelVersion, Workspace
@@ -27,8 +23,7 @@ ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 STATUS = {"shift": "Есть сдвиг", "stable": "Без сдвига", "insufficient_data": "Малая партия"}
-PAGES = {"recognition": "Распознавание", "review": "Проверка", "quality": "Качество",
-         "experiment": "Эксперимент"}
+PAGES = {"recognition": "Распознавание и дашборд", "review": "Проверка", "quality": "Качество"}
 PREDICTION_COLUMNS = {"class": "Прогноз", "score": "Вероятность", "margin": "Разрыв топ-2"}
 TEMPLATES = Jinja2Templates(directory=WEB / "templates")
 site = APIRouter(include_in_schema=False)
@@ -45,8 +40,7 @@ class StalIn:
         optuna = BaseModel(ROOT / "base model", optuna=True)
         self.optuna = ModelVersion(0, optuna, evaluate(optuna, *self.split.test), 0)
         self.workspace = Workspace(workspace_path)
-        self._experiment_lock = Lock()
-        self._experiment = None
+        self.comparison = load_comparison(ROOT / "analysis")
 
     def model_version(self, number: int) -> ModelVersion:
         if number == 0:
@@ -57,15 +51,6 @@ class StalIn:
             return self.workspace.load_version(number)
         except ValueError as error:
             raise HTTPException(404, str(error)) from error
-
-    def experiment(self):
-        with self._experiment_lock:
-            if self._experiment is None:
-                curves = compare_review(self.split, DEMO_BUDGETS, DEMO_SEEDS)
-                drift = run_drift_demo(self.baseline, self.split.pool[0])
-                self._experiment = curves, drift
-        return self._experiment
-
 
 def service(request: Request) -> StalIn:
     return request.app.state.stal_in
@@ -87,11 +72,12 @@ def render(request: Request, page: str, *, status_code=200, version=None, **cont
     qc = service(request)
     if "csrf" not in request.session:
         request.session["csrf"] = secrets.token_urlsafe(32)
+    if page == "recognition":
+        context["comparison"] = qc.comparison
     context.update(page=page, pages=PAGES, csrf=request.session["csrf"],
                    version=version or chosen_model(request),
                    versions=[1, 0, *qc.workspace.version_numbers()],
-                   notice=request.session.pop("notice", None),
-                   experiment_open=request.query_params.get("run") == "true")
+                   notice=request.session.pop("notice", None))
     return TEMPLATES.TemplateResponse(
         request, f"{page}.html", context=context, status_code=status_code,
         headers={"Cache-Control": "no-store"},
@@ -126,9 +112,15 @@ def recognition(request: Request):
     batch = next((item for item in qc.workspace.list_batches() if item.id == batch_id), None) if batch_id else None
     context = {}
     if batch:
-        frame = predict(version.model, qc.workspace.load_batch(batch.id))
+        features = qc.workspace.load_batch(batch.id)
+        frame = predict(version.model, features)
         context = dict(status=STATUS[batch.status], categories=counts(frame["class"]),
                        predictions=frame.reset_index(names="row").to_dict("records"))
+        context["dashboard_batch"] = {
+            "id": batch.id, "name": batch.name,
+            "rows": frame.assign(features=features.loc[frame.index].to_dict("records"))
+                         .reset_index(names="row").to_dict("records"),
+        }
     return render(request, "recognition", batch=batch, version=version, **context)
 
 
@@ -149,9 +141,9 @@ def upload_batch(request: Request, file: UploadFile):
 @site.post("/batches/demo", dependencies=[Depends(check_csrf)])
 def demo(request: Request):
     qc = service(request)
-    batch = simulate_brightness_shift(qc.baseline, qc.split.pool[0].iloc[:128])
+    batch = qc.split.pool[0].iloc[:128]
     request.session["batch"] = qc.workspace.register_batch(
-        batch, assess_drift(qc.baseline, batch), "Пример со сдвигом яркости",
+        batch, assess_drift(qc.baseline, batch), "Пример из датасета UCI Steel Plates Faults",
     )
     request.session.pop("review_batch", None)
     request.session["quality_batch"] = request.session["batch"]
@@ -240,14 +232,13 @@ def retrain(request: Request, batch: Annotated[str, Form()]):
 
 
 @site.post("/models/select", dependencies=[Depends(check_csrf)])
-def select_model(request: Request, number: Annotated[int, Form(ge=0)], destination: Annotated[str, Form()],
-                 run: Annotated[bool, Form()] = False):
+def select_model(request: Request, number: Annotated[int, Form(ge=0)], destination: Annotated[str, Form()]):
     qc = service(request)
     if number not in (0, 1) and number not in qc.workspace.version_numbers():
         raise HTTPException(404, "Версия модели отсутствует.")
     request.session["model"] = number
     page = destination if destination in PAGES else "recognition"
-    return redirect(request, page, **({"run": "true"} if page == "experiment" and run else {}))
+    return redirect(request, page)
 
 
 @site.get("/quality", response_class=HTMLResponse)
@@ -278,34 +269,9 @@ def quality(request: Request, batch: str | None = None):
                   actual_counts=counts(qc.labels), batch_counts=batch_counts, actual_size=len(qc.labels))
 
 
-@site.get("/experiment", response_class=HTMLResponse)
-def experiment(request: Request, run: bool = False, target: Annotated[float, Query(ge=0, le=1)] = .793,
-               minutes: Annotated[float, Query(ge=0, allow_inf_nan=False)] = 3,
-               rubles: Annotated[float, Query(ge=0, allow_inf_nan=False)] = 40):
-    if not run:
-        return render(request, "experiment", run=False)
-    curves, drift = service(request).experiment()
-    return render(request, "experiment", run=True, drift=drift, target=target, minutes=minutes,
-                  rubles=rubles, budgets=DEMO_BUDGETS, savings=estimate_savings(curves, target, minutes, rubles))
-
-
 def csv_response(csv: str, filename: str):
     return Response(csv.encode("utf-8-sig"), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
-
-
-@site.get("/experiment/results.csv")
-def experiment_csv(request: Request):
-    curves, _ = service(request).experiment()
-    return csv_response(curves.to_csv(index=False), "review-experiment.csv")
-
-
-@site.get("/experiment/chart.png")
-def experiment_chart(request: Request, target: Annotated[float, Query(ge=0, le=1)] = .793):
-    curves, _ = service(request).experiment()
-    image = BytesIO()
-    plot_learning_curves(curves, target).savefig(image, format="png")
-    return Response(image.getvalue(), media_type="image/png")
 
 
 @site.get("/dashboard/data/{name:path}")

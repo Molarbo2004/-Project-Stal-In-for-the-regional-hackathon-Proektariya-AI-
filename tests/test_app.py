@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app import create_app
 
-from faults.charts import plot_class_counts, plot_drift_scores, plot_learning_curves
+from faults.charts import plot_class_counts, plot_drift_scores
 from faults.data import load_uci
 
 APP = Path(__file__).resolve().parents[1] / "app.py"
@@ -15,10 +15,7 @@ APP = Path(__file__).resolve().parents[1] / "app.py"
 def test_charts_render_without_a_window():
     counts = pd.Series({"Other_Faults": 42, "Bumps": 20})
     scores = pd.Series({"Minimum_of_Luminosity": .4, "Pixels_Areas": .2})
-    curves = pd.DataFrame({
-        "strategy": ["active", "random"], "budget": [20, 20], "macro_f1": [.79, .77],
-    })
-    for figure in (plot_class_counts(counts, "Частоты"), plot_drift_scores(scores), plot_learning_curves(curves)):
+    for figure in (plot_class_counts(counts, "Частоты"), plot_drift_scores(scores)):
         buffer = BytesIO()
         figure.savefig(buffer, format="png")
         assert buffer.getvalue().startswith(b"\x89PNG")
@@ -36,14 +33,18 @@ def test_operator_flow(monkeypatch, tmp_path):
         assert home.context["version"].number == 1
         assert client.get("/healthz").json() == {"status": "ok"}
         result = post("/batches/demo", home)
-        assert result.context["status"] == "Есть сдвиг"
+        workspace = client.app.state.stal_in.workspace
+        sample = workspace.load_batch(result.context["batch"].id)
+        source, _ = load_uci(APP.parent)
+        assert sample.columns.equals(source.columns)
+        assert pd.MultiIndex.from_frame(sample).isin(pd.MultiIndex.from_frame(source)).all()
         assert len(result.context["predictions"]) == 128
         exported = client.get("/batches/predictions.csv")
         assert exported.status_code == 200 and len(exported.text.splitlines()) == 129
         assert "/review/retrain" not in client.get("/review").text
         assert post("/review/retrain", result, batch=result.context["batch"].id).status_code == 409
         review = client.get("/review", params={"batch": result.context["batch"].id})
-        assert review.context["report"].status == "shift"
+        assert review.context["report"].status == result.context["batch"].status
         for number in (2, 3):
             label = review.context["queue"][0]
             saved = post("/review/label", review, batch=review.context["batch_id"], position=label["position"],
@@ -92,19 +93,9 @@ def test_operator_flow(monkeypatch, tmp_path):
         assert metrics.size == 1 and metrics.accuracy == 1
         assert client.get("/quality?batch=uci").context["metrics"].size == 389
         assert post("/batches/demo", uploaded).context["batch"].count == 128
-        assert "Обнаружен сдвиг признаков" in client.get("/quality").text
+        assert client.get("/quality").context["current"].id == result.context["batch"].id
         rejected = client.post("/batches/upload", data={"csrf": home.context["csrf"]},
                                files={"file": ("bad.json", "[{}]", "application/json")})
         assert rejected.status_code == 422 and rejected.context["issues"]
         assert client.get("/").context["batch"] is None
-
-        experiment = client.get("/experiment?run=true&target=0.75&minutes=3&rubles=40")
-        assert experiment.status_code == 200 and experiment.context["drift"].trials == 40
-        assert "до дополнительной разметки" in experiment.text
-        revised = client.get("/experiment?run=true&target=0.793&minutes=5&rubles=60")
-        assert "/experiment/chart.png?target=0.793" in revised.text
-        assert "<td>80</td><td>400</td><td>4800</td>" in revised.text
-        assert client.get("/experiment/chart.png?target=0.75").content != client.get("/experiment/chart.png?target=0.793").content
-        assert client.get("/experiment/chart.png").content.startswith(b"\x89PNG")
-        assert len(client.get("/experiment/results.csv").text.splitlines()) == 31
     assert all(p.read_bytes() == contents for p, contents in artifacts.items())

@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 {% from "components.html" import csrf_field, distribution, metric %}
+{% block assets %}
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <script src="/static/dashboard.js" defer></script>
+{% endblock %}
 {% block heading %}
-  <h1>Распознавание</h1>
-  <p class="intro">Определение типа дефекта по числовым признакам</p>
+  <h1>Распознавание и дашборд</h1>
+  <a href="#dashboard">Перейти к дашборду</a>
 {% endblock %}
 {% block content %}
   {% if batch %}
@@ -56,9 +60,12 @@
           </details>
         {% endif %}
       </section>
-      {{ distribution("Категории партии", "По прогнозам модели v" ~ version.number, categories) }}
+      {{ distribution("Категории партии", "Доля записей по прогнозам модели v" ~ version.number, categories, total=batch.count) }}
     </div>
   {% endif %}
+  <input type="hidden" id="dashboard-version" value="{{ version.number }}">
+  {% if dashboard_batch %}<script type="application/json" id="dashboard-batch">{{ dashboard_batch|tojson }}</script>{% endif %}
+  {% include "dashboard.html" %}
 {% endblock %}
 
 {% macro upload_form() %}
@@ -79,7 +86,7 @@
       <tbody>{% for row in rows %}<tr>
         <td>{{ "%03d"|format(row.row) }}</td><th scope="row">{{ row["class"] }}</th>
         <td class="number">{{ "%.1f"|format(row.score * 100) }} %</td>
-        <td class="number wide">{{ "%.3f"|format(row.margin) }}</td>
+        <td class="number wide">{{ "%.1f"|format(row.margin * 100) }} п. п.</td>
       </tr>{% endfor %}</tbody>
     </table>
   </div>

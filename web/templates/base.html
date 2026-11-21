@@ -9,6 +9,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/stal-in.css">
   <script src="/static/stal-in.js" defer></script>
+  {% block assets %}{% endblock %}
 </head>
 <body>
   <a class="skip" href="#main">Перейти к содержимому</a>
@@ -25,7 +26,6 @@
           <form action="/models/select" method="post" class="stack">
             {{ csrf_field(csrf) }}
             <input type="hidden" name="destination" value="{{ page }}">
-            {% if experiment_open %}<input type="hidden" name="run" value="true">{% endif %}
             {% for number in versions %}
               <label class="model-option">
                 <input type="radio" name="number" value="{{ number }}" {% if number == version.number %}checked{% endif %}>
@@ -39,14 +39,13 @@
         </div>
       </details>
       <nav class="nav" aria-label="Разделы">
-        {% set paths = {"recognition": "/", "review": "/review", "quality": "/quality", "experiment": "/experiment"} %}
+        {% set paths = {"recognition": "/", "review": "/review", "quality": "/quality"} %}
         {% for key, label in pages.items() %}
           <a href="{{ paths[key] }}" {% if key == page %}aria-current="page"{% endif %}>
             <span class="nav-icon icon-{{ key }}" aria-hidden="true"></span>
             <span>{{ label }}</span>
           </a>
         {% endfor %}
-        <a href="/static/dashboard.html"><span class="nav-icon icon-dashboard" aria-hidden="true"></span><span>Дашборд</span></a>
       </nav>
     </header>
     <main id="main">

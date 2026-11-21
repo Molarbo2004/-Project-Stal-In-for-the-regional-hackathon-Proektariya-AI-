@@ -23,18 +23,3 @@ def plot_class_counts(counts, title):
 
 def plot_drift_scores(scores):
     return horizontal(scores.head(5).round(3), "Расстояние Колмогорова–Смирнова")
-
-
-def plot_learning_curves(curves, target=None):
-    figure = Figure(figsize=(6, 3.6), layout="constrained")
-    ax = figure.subplots()
-    names = {"active": "Активный отбор", "random": "Случайный отбор"}
-    sns.lineplot(data=curves.assign(strategy=curves.strategy.map(names)), x="budget", y="macro_f1",
-                 hue="strategy", palette={names["active"]: "#D75B13", names["random"]: "#776B63"},
-                 marker="o", errorbar=None, ax=ax)
-    ax.set(xlabel="Число ручных разметок", ylabel="Macro-F1")
-    if target is not None:
-        ax.axhline(target, linestyle="--", color="#34628A", label=f"Цель {target:g}")
-    ax.legend(title=None)
-    sns.despine(ax=ax)
-    return figure

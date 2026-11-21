@@ -5,3 +5,13 @@
 .stal-in/
 __pycache__/
 .pytest_cache/
+~$*
+*.xlsx.inspect.ndjson
+
+# Локальные материалы презентации и архив хакатона
+/team-blueprints.zip
+/team-blueprints/
+/team-factory-portrait*.png
+/team-marshal-portrait.png
+/Хакатон 20.11-22.11-20261121T185725Z-1-001.zip
+/Хакатон 20.11-22.11-20261121T185725Z-1-001/
