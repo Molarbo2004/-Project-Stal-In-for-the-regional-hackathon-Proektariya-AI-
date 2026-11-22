@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from faults.base_model import BaseModel, MODELS
-from faults.comparison import compare_predictions, load_comparison
+from faults.comparison import RATING_CRITERIA, compare_predictions, load_comparison, model_rating, summarize_fivefold
 from faults.data import BatchInputError, import_batch, load_uci
 from faults.drift import MIN_BATCH_SIZE, assess_drift, fit_drift_baseline
 from faults.model import evaluate, evaluate_predictions, predict, split_dataset
@@ -60,6 +60,9 @@ class StalIn:
         self.holdout = results.to_dict("records")
         self.pairs = compare_predictions(oof, oof.truth, MODELS.values())
         self.cv, self.folds, self.cv_pairs = load_comparison(ROOT / "analysis" / "primary_5x2.csv", MODELS.values())
+        self.fivefold = summarize_fivefold(oof, MODELS.values())
+        self.rating = model_rating({MODELS[n]: metrics for n, metrics in self.oof_metrics.items()},
+                                   self.cv, self.folds)
         self.workspace = Workspace(workspace_path)
 
     def model_version(self, number: float) -> ModelVersion:
@@ -118,7 +121,7 @@ def render(request: Request, page: str, *, status_code=200, version=None, **cont
     names = qc.model_names()
     if page == "recognition":
         full_metrics = {n: qc.versions[n].evaluation if n in MODELS else qc.trained_results(n)[0] for n in names}
-        context.update(pairs=qc.pairs, cv=qc.cv, folds=qc.folds, cv_pairs=qc.cv_pairs, full_metrics=full_metrics, oof_metrics=qc.oof_metrics)
+        context.update(fivefold=qc.fivefold, rating=qc.rating, criteria=RATING_CRITERIA, pairs=qc.pairs, cv=qc.cv, folds=qc.folds, cv_pairs=qc.cv_pairs, full_metrics=full_metrics, oof_metrics=qc.oof_metrics)
     context.update(page=page, pages=PAGES, csrf=request.session["csrf"],
                    version=version or chosen_model(request),
                    versions=names, primary_models=MODELS,

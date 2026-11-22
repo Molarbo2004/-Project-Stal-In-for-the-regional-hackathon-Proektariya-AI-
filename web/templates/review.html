@@ -35,7 +35,7 @@
       <section class="card">
         <h2>Очередь на разметку</h2>
         {% if entry %}
-          <form method="get" action="/review" class="picker">
+          <form method="get" action="/review#review-record" class="picker">
             <input type="hidden" name="batch" value="{{ batch_id }}">
             <label for="position">Запись</label>
             <div class="input-row">
@@ -45,7 +45,7 @@
               <button class="button" type="submit">Показать</button>
             </div>
           </form>
-          <div class="summary-line"><span>Прогноз v{{ version.number }} · {{ entry["class"] }}</span>
+          <div class="summary-line" id="review-record" tabindex="-1"><span>Запись {{ "%03d"|format(entry.position + 1) }} · Прогноз v{{ version.number }} · {{ entry["class"] }}</span>
             <span class="badge">Разрыв топ-2 · {{ "%.3f"|format(entry.margin) }}</span></div>
           <details class="extra">
             <summary>Характеристики дефекта</summary>

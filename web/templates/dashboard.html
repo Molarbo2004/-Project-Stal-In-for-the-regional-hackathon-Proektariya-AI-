@@ -33,6 +33,12 @@
           </details>
         </section>
       </div>
+      <label>Критерий выбора лидера
+        <select id="leader-criterion">
+          <option value="weighted_f1">Weighted F1 · среднее по пяти фолдам</option>
+          <option value="mean_rank">Комплексный рейтинг · равноправные критерии</option>
+        </select>
+      </label>
       <div class="metrics" id="kpis"></div>
     </section>
 
@@ -46,6 +52,19 @@
             <label class="model-option"><input type="checkbox" name="compare-model" value="{{ name }}" checked> v{{ n }} · {{ name }}</label>
           {% endfor %}</div>
         </fieldset>
+        <h3>Кросс-валидация на пяти фолдах</h3>
+        <p>Среднее и стандартное отклонение по пяти проверочным частям UCI. Weighted F1 учитывает число примеров каждого класса в проверочной части.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Модель</th><th>Accuracy (mean)</th><th>Accuracy (std)</th><th>Macro F1 (mean)</th><th>Macro F1 (std)</th><th>Weighted F1 (mean)</th></tr></thead>
+          <tbody>{% for name, row in fivefold.items() %}<tr data-compare="{{ name }}"><th>{{ name }}</th>{% for key in ["accuracy", "accuracy_std", "macro_f1", "macro_f1_std", "weighted_f1"] %}<td>{{ "%.4f"|format(row[key]) }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+        </table></div>
+        <h3>Комплексный рейтинг</h3>
+        <p>По каждому из пяти показателей модели получают место среди всех версий с сопоставимыми измерениями. При равенстве они делят среднее из занятых мест. Лидирует выбранная модель с наименьшим средним местом. Полнота, macro-F1 и accuracy рассчитаны по вневыборочным прогнозам на всех {{ full_metrics[version.number].size }} записях UCI. Полнота усреднена с равным весом для каждого типа дефекта.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Модель</th><th>Среднее место</th>{% for key, label in criteria %}<th>{{ label }}</th>{% endfor %}</tr></thead>
+          <tbody>{% for name, result in rating.items() %}<tr data-compare="{{ name }}"><th>{{ name }}</th><td><strong>{{ "%.2f"|format(result.mean_rank) }}</strong></td>{% for key, label in criteria %}<td>{{ "%.3f"|format(result.components[key]) }} <small>(место {{ "%g"|format(result.ranks[key]) }})</small></td>{% endfor %}</tr>{% endfor %}</tbody>
+        </table></div>
+        <p class="muted">Худшая accuracy — минимум на десяти разбиениях 5×2 CV. Скорость обучения — отношение времени самой быстрой конфигурации к времени данной модели на тех же разбиениях CPU. Для рейтинга нужны все пять показателей.</p>
         <p>Все {{ full_metrics[version.number].size }} записей UCI проверены по одному разу в стратифицированной проверке на пяти разбиениях (OOF). Для каждой записи прогноз сделала модель, обученная на остальных четырёх частях. OOF рассчитан для трёх основных конфигураций. Последний столбец показывает долю верных ответов каждой сохранённой модели на всём UCI, включая знакомые ему примеры.</p>
         <ul class="bars" aria-label="Macro-F1"><li><strong>Macro-F1</strong></li>{% for n in primary_models %}
           <li data-compare="{{ versions[n] }}"><span>v{{ n }} · {{ versions[n] }}</span><span class="track"><i style="width:{{ 100 * oof_metrics[n].macro_f1 }}%"></i></span><strong>{{ "%.3f"|format(oof_metrics[n].macro_f1) }}</strong></li>
@@ -179,7 +198,7 @@
           <div class="queue" id="queue"></div>
         </section>
         <section class="card">
-          <div class="card-head"><h2>Карточка записи</h2><span class="badge grey" id="entryTag">—</span></div>
+          <div class="card-head"><h2 id="entry-heading" tabindex="-1" aria-describedby="entryTag">Карточка записи</h2><span class="badge grey" id="entryTag">—</span></div>
           <div id="entry"><div class="empty">Выберите запись из очереди.</div></div>
         </section>
       </div>

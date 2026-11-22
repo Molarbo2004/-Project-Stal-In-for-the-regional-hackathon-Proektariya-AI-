@@ -65,3 +65,11 @@ if (workspaceSwitch) {
   mobile.addEventListener("change", updateWorkspace);
   navigateWorkspace();
 }
+
+
+const reviewPosition = document.querySelector("#position");
+if (reviewPosition) {
+  const form = reviewPosition.form;
+  reviewPosition.addEventListener("change", () => form.requestSubmit());
+  form.querySelector('button[type="submit"]').hidden = true;
+}

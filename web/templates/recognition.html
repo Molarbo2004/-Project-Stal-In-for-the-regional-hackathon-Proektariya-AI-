@@ -74,6 +74,8 @@
     {% for n, metrics in full_metrics.items() %}{{ versions[n]|tojson }}: {{ metrics.accuracy|tojson }}{{ "," if not loop.last }}{% endfor %}
   }</script>
   <script type="application/json" id="dashboard-models">{{ versions|tojson }}</script>
+  <script type="application/json" id="dashboard-fivefold">{{ fivefold|tojson }}</script>
+  <script type="application/json" id="dashboard-rating">{{ rating|tojson }}</script>
   <script type="application/json" id="dashboard-cv">{{ cv|tojson }}</script>
   {% include "dashboard.html" %}
 {% endblock %}

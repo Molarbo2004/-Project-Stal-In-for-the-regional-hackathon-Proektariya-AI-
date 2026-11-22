@@ -10,6 +10,8 @@ const SEEDS=[42,47,53], BUDGETS=[0,10,20,40,80];
 const MODEL_NAMES = Object.fromEntries(Object.entries(JSON.parse(document.getElementById("dashboard-models").textContent))
   .map(([version, name]) => [name.toLowerCase(), "v" + version + " · " + name]));
 const CV = JSON.parse(document.getElementById("dashboard-cv").textContent);
+const FIVEFOLD = JSON.parse(document.getElementById("dashboard-fivefold").textContent);
+const RATING = JSON.parse(document.getElementById("dashboard-rating").textContent);
 const oofKeys = new Set(Object.keys(CV).map(name => name.toLowerCase()));
 const methodLabel = key => oofKeys.has(key) ? "OOF" : "прямой прогноз";
 const STATUS={shift:"Есть сдвиг",stable:"Без сдвига",insufficient_data:"Малая партия"};
@@ -43,6 +45,8 @@ const S={
   sources:{nna:"idle",var:"idle"},calibrated:false
 };
 const comparisonInputs = $$('input[name="compare-model"]');
+const leaderCriterion = $("#leader-criterion");
+leaderCriterion.addEventListener("change", renderKpis);
 const qualityModel = $("#quality-model");
 function selectedModels() {
   return comparisonInputs.filter(input => input.checked).map(input => input.value);
@@ -247,7 +251,7 @@ function oofBatch(model){
 
 function addBatch(id,label,rows,note){
   S.batches=S.batches.filter(b=>b.id!==id);
-  S.batches.push({id,label,rows,note});S.batchId=id;renderBatchSelect();assessCurrent()}
+  S.batches.push({id,label,rows,note});S.entry=null;S.batchId=id;renderBatchSelect();assessCurrent()}
 function currentBatch(){return S.batches.find(b=>b.id===S.batchId)||null}
 function assessCurrent(){
   const b=currentBatch();
@@ -274,12 +278,18 @@ function bars(el,items,colorFn){
 
 function renderKpis(){
   const b=currentBatch(),d=S.drift;
-  const [winner, best] = Object.entries(CV).filter(([name]) => selectedModels().includes(name)).sort((a, b) => b[1].macro_f1 - a[1].macro_f1)[0] || [];
+  const useF1 = leaderCriterion.value === "weighted_f1";
+  const results = useF1 ? FIVEFOLD : RATING;
+  const rated = selectedModels().filter(name => name in results);
+  const values = rated.map(name => results[name][leaderCriterion.value]);
+  const best = useF1 ? Math.max(...values) : Math.min(...values);
+  const leaders = rated.filter((name, i) => values[i] === best);
   const q=qualityData();
   const items=[
     ["Записей в датасете",S.rows.length||"—","UCI Steel Plates Faults"],
     ["Записей с OOF-прогнозом",S.oof.length||"—","пять разбиений UCI"],
-    ["Лучшая модель по 5×2 CV",winner ? MODEL_NAMES[winner.toLowerCase()] : "—",best ? "macro-F1 "+f3(best.macro_f1) : "Нет результатов для выбранных версий"],
+    [useF1 ? "Лидер по Weighted F1" : "Лидер комплексного рейтинга",leaders.map(name => MODEL_NAMES[name.toLowerCase()]).join(" / ") || "—",
+      leaders.length ? (useF1 ? best.toFixed(4)+" · 5 фолдов" : "Среднее место "+best.toFixed(2)) : "Нет сопоставимых измерений для выбранных версий"],
     ["Партия",b?b.rows.length:"—",b?b.label:"не выбрана"],
     ["Мониторинг",d?STATUS[d.status]:"—",d&&d.score!=null?"KS "+f3(d.score)+" / порог "+f3(d.threshold):"нужно ≥ 30 записей"],
     ["Accuracy · "+methodLabel(qualityModel.value),q?pc(q.accuracy):"—",q?MODEL_NAMES[qualityModel.value]:""],
@@ -466,7 +476,15 @@ function renderQueue(){
       '<span style="min-width:0"><span class="cls"><i class="sw" style="background:'+COLOR[r.pred]+'"></i>'+esc(RU[r.pred]||r.pred)+'</span>'+
       '<small class="muted">запись '+r.source_line+' · margin '+f3(r.margin)+(lab?" · метка: "+esc(RU[lab]||lab):"")+'</small></span>'+
       '<span class="badge grey">'+f3(r.priority)+'</span></button>'}).join("");
-  $$("#queue .qitem").forEach(el=>el.onclick=()=>{S.entry=Number(el.dataset.pos);renderQueue();renderEntry()})}
+  $$("#queue .qitem").forEach(el => el.onclick = () => {
+    S.entry = Number(el.dataset.pos);
+    renderQueue();
+    renderEntry();
+    const heading = $("#entry-heading");
+    heading.focus({preventScroll:true});
+    heading.scrollIntoView({block:"nearest"});
+  });
+}
 
 function renderEntry(){
   const b=currentBatch();
@@ -502,7 +520,7 @@ function renderDemo(){
      ["Пар прогонов",d.trials,"обычная + сдвинутая"]]
     .map(([l,v,s])=>'<div class="card metric"><span>'+esc(l)+'</span><strong>'+esc(v)+'</strong><em>'+esc(s)+'</em></div>').join("")+'</div>'+
     '<div class="status '+(d.detection_rate>=.8?"success":"warning")+'" style="margin-top:10px"><strong>Сдвиг яркости: +1.4 · max(IQR, σ/2)</strong><p>Изменены четыре признака: '+BRIGHTNESS.join(", ")+'. Детектор ловит '+Math.round(d.detection_rate*d.trials)+' из '+d.trials+' сдвигов при '+Math.round(d.false_alert_rate*d.trials)+' ложных срабатываниях.</p></div>'}
-function renderAll(){renderKpis();renderQuality();renderDrift();renderQueue()}
+function renderAll(){renderKpis();renderQuality();renderDrift();renderQueue();renderEntry()}
 
 /* ================= API ================= */
 /* ================= ЗАГРУЗКА РЕПОЗИТОРИЯ ================= */
@@ -591,6 +609,9 @@ $("#expJson").onclick=()=>{const q=qualityData();
   download("stal-in-dashboard.json",JSON.stringify({
     generated:new Date().toISOString(),dataset:S.rows.length,split:S.split?{train:S.split.train.length,validation:S.split.validation.length,pool:S.split.pool.length,test:S.split.test.length}:null,
     saved_accuracy_full_uci:Object.fromEntries(selectedModels().map(name => [name, savedAccuracy[name]])),
+    leader_criterion:leaderCriterion.value,
+    fivefold:Object.fromEntries(selectedModels().filter(name => name in FIVEFOLD).map(name => [name, FIVEFOLD[name]])),
+    rating:Object.fromEntries(selectedModels().filter(name => name in RATING).map(name => [name, RATING[name]])),
     cross_validation:Object.fromEntries(selectedModels().map(name => [name, CV[name]])),
     evaluation:{method:methodLabel(qualityModel.value),model:qualityModel.value,accuracy:q?q.accuracy:null,macro_f1:q?q.macro_f1:null,per_class:q?q.per:null},
     drift:S.drift?{status:S.drift.status,score:S.drift.score,threshold:S.drift.threshold,sample_size:S.drift.sample_size}:null,
